@@ -2,43 +2,40 @@
 
 import os
 import sys
-import yaml
-import json
-import csv
 import copy
 import time
 import math
-import traceback
 
 import rclpy
 from rclpy.node import Node
-from rclpy.parameter import Parameter
 from rclpy.executors import SingleThreadedExecutor
-from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped, Twist
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformListener
-from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
+from nav2_simple_commander.robot_navigator import BasicNavigator
 
 # 경량 유틸리티 모듈
 try:
-    from utils.map_utils import get_map_bounds
     from utils.ros_utils import create_pose_stamped, teleport_gazebo_entity
     from utils.nav2_utils import apply_nav2_monkey_patches
-    from utils.visualizer import visualize_paths, visualize_planned_wall_proximity, visualize_stall_points
     from utils.boundary_repass import BoundaryRepassController
-    from utils.stall_logger import StallWatcher, write_stall_report
     from utils.mission_logger import MissionLogger
+    from utils.controller_switch import ControllerSwitcher, transit_bt_path
+    from nav2_drive_mixin import Nav2DriveMixin
+    from localization_mixin import LocalizationMixin
+    from run_context_mixin import RunContextMixin
 except ImportError:
-    from mission_execution.utils.map_utils import get_map_bounds
     from mission_execution.utils.ros_utils import create_pose_stamped, teleport_gazebo_entity
     from mission_execution.utils.nav2_utils import apply_nav2_monkey_patches
-    from mission_execution.utils.visualizer import visualize_paths, visualize_planned_wall_proximity, visualize_stall_points
     from mission_execution.utils.boundary_repass import BoundaryRepassController
-    from mission_execution.utils.stall_logger import StallWatcher, write_stall_report
     from mission_execution.utils.mission_logger import MissionLogger
+    from mission_execution.utils.controller_switch import ControllerSwitcher, transit_bt_path
+    from mission_execution.nav2_drive_mixin import Nav2DriveMixin
+    from mission_execution.localization_mixin import LocalizationMixin
+    from mission_execution.run_context_mixin import RunContextMixin
 
 
-class MissionExecutor(Node):
+class MissionExecutor(Nav2DriveMixin, LocalizationMixin, RunContextMixin, Node):
     """
     Nav2 기반 미션 실행을 담당하는 ROS 2 노드.
 
@@ -106,9 +103,6 @@ class MissionExecutor(Node):
         # 미션 전체의 진짜 첫/마지막 지점은 "지나쳐야 채워진다" 원칙의 전제(양방향
         # 통과)를 구조적으로 만족할 수 없음 - boundary_repass.py 모듈 docstring 참고.
         self._boundary_repass = BoundaryRepassController(self)
-
-        self._current_angular_mode = None
-        self._controller_param_client = None  # 지연 생성이라 None으로 시작함
 
         # 주행 모니터링 관련 상태
         self.current_amcl_x = None
@@ -178,155 +172,15 @@ class MissionExecutor(Node):
         # 2. params.yaml 설정 파일 파싱
         self._load_config()
 
+        # coverage/transit 구간별 컨트롤러 파라미터 전환(utils/controller_switch.py).
+        # mission_exec_cfg를 값으로 받으므로 _load_config() 뒤에 만들어야 함.
+        self.controller_switch = ControllerSwitcher(self, self.spin_executor, self.mission_exec_cfg)
+
         # 3. 글로벌 맵 바운즈 확보
         self._load_map_bounds()
 
         # 4. 이전 파이프라인에서 생성된, 보간/샘플링이 끝난 JSON 원본 경로 파일 로드
         self._load_final_path()
-
-    # ------------------------------------------------------------------
-    # 초기화 단계 헬퍼
-    # ------------------------------------------------------------------
-
-    def _resolve_run_mode(self):
-        """
-        'is_sim' ROS 2 파라미터를 선언하고 읽음. launch 파일이 주입하지 않으면
-        기본값 False(Real-world)로 동작함.
-
-        use_sim_time은 launch 파일이 is_sim과 함께 주입하는 것이 표준이지만,
-        혹시 누락되더라도 안전하게 동작하도록 is_sim 값으로부터 use_sim_time을
-        다시 추론해 자기 자신에게 강제 적용함.
-        """
-        self.declare_parameter('is_sim', False)
-        self.is_sim = self.get_parameter('is_sim').get_parameter_value().bool_value
-
-        if self.is_sim:
-            self.get_logger().info("Running Simulation(Gazebo) Mode.")
-        else:
-            self.get_logger().info("Running Real-world Mode.")
-
-        # use_sim_time 강제 동기화 (launch 파일이 누락했을 경우의 안전장치)
-        use_sim_time_param = self.get_parameter_or(
-            'use_sim_time', Parameter('use_sim_time', Parameter.Type.BOOL, self.is_sim)
-        )
-        if use_sim_time_param.value != self.is_sim:
-            self.set_parameters([Parameter('use_sim_time', Parameter.Type.BOOL, self.is_sim)])
-
-    def _load_config(self):
-        try:
-            from ament_index_python.packages import get_package_share_directory
-            package_share_dir = get_package_share_directory('dae_coverage_floor_flatness')
-            config_path = os.path.join(package_share_dir, 'config', 'params.yaml')
-        except Exception:
-            # mission_execution 내에서 실행 시 프로젝트 루트의 config로 fallback 탐색
-            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-            config_path = os.path.join(base_dir, "config", "params.yaml")
-
-        print(f"[*] Resolving parameters from: {config_path}")
-        if not os.path.exists(config_path):
-            print(f"[!] Critical Error: params.yaml file not found at {config_path}")
-            sys.exit(1)
-
-        with open(config_path, 'r') as f:
-            self.config = yaml.safe_load(f)
-
-        self.global_cfg = self.config.get('global', {})
-        self.workspace_root = os.path.expanduser(
-            self.global_cfg.get('workspace_root', '~/dae_floor_maps')
-        )
-        self.env_cfg = self.config.get('environment_modeling', {})
-        self.mission_exec_cfg = self.config.get('mission_execution', {})
-        # 실행 시점에 직접 쓰이진 않지만, 계획 시점에 쓰인 값(final_path_meta.json)과
-        # 대조하기 위해서만 참조함 - _verify_plan_meta 참고.
-        self.mission_planner_cfg = self.config.get('mission_planner', {})
-
-    def _load_map_bounds(self):
-        grid_dir = os.path.join(self.workspace_root, self.env_cfg.get('output_grid_dir', 'maps/grid'))
-        yaml_path = os.path.normpath(os.path.join(grid_dir, "map_from_dae.yaml"))
-        self.map_yaml_path = yaml_path
-
-        if not os.path.exists(yaml_path):
-            print(f"[!] CRITICAL ERROR: Map bounds data '{yaml_path}' not found!")
-            sys.exit(1)
-
-        self.map_bounds = get_map_bounds(yaml_path)
-
-    def _load_final_path(self):
-        metric_dir = os.path.join(self.workspace_root, self.mission_exec_cfg.get('input_metric_dir', 'analytics/metrics'))
-        cache_file = os.path.normpath(os.path.join(metric_dir, "final_path.json"))
-
-        if not os.path.exists(cache_file):
-            print(f"[!] CRITICAL ERROR: Mission route '{cache_file}' not found!")
-            print("[-] Please run 'run_generation_pipeline.py' on your workstation first.")
-            sys.exit(1)
-
-        print(f"[*] Found pre-generated path at {cache_file}. Loading...")
-        with open(cache_file, 'r') as f:
-            self.final_path = json.load(f)
-        print(f"[*] Path loaded. Total raw waypoints: {len(self.final_path)}")
-
-        self._verify_plan_meta(metric_dir)
-
-    def _verify_plan_meta(self, metric_dir):
-        """
-        final_path.json이 계획 시점(run_generation_pipeline.py -> MissionPlanner.plan())에
-        실제로 사용한 파라미터 값을, 지금 이 노드가 params.yaml에서 읽은 실행 시점 값과
-        대조함. mission_planner.py가 plan() 마지막에 함께 저장하는 사이드카
-        'final_path_meta.json'을 읽어 비교함.
-
-        boundary_repass_distance_m/enable_boundary_repass는 final_path.json의
-        좌표 자체(transit이 실제로 시작하는 지점)에 기하학적으로 반영되므로, 두
-        시점의 값이 어긋나면 계획된 transit 시작점과 실제 repass 후 로봇 위치가
-        조용히 달라짐 - robot_width/path_safety_margin도 경로 형상 자체에
-        반영되는 같은 범주의 값임. 이 일치를 사람이 매번 기억할 필요 없도록
-        여기서 자동으로 대조하고, 어긋나면 다른 CRITICAL ERROR들과 동일하게
-        즉시 중단시킴(도입 배경은 HISTORY.md §2 참고).
-
-        사이드카 파일이 없으면(예: 이 검증 로직 추가 이전에 생성된 오래된
-        final_path.json) 대조 자체를 건너뛰고 경고만 남김 - 하위 호환을 위해
-        미션을 막지는 않음.
-        """
-        meta_file = os.path.normpath(os.path.join(metric_dir, "final_path_meta.json"))
-        if not os.path.exists(meta_file):
-            print(f"[!] Warning: '{meta_file}' not found - cannot verify plan/runtime "
-                  f"parameter consistency (older final_path.json?). Proceeding without check.")
-            return
-
-        with open(meta_file, 'r') as f:
-            plan_meta = json.load(f)
-
-        runtime_values = {
-            'robot_width': self.env_cfg.get('robot_width', 0.28),
-            'path_safety_margin': self.mission_planner_cfg.get('path_safety_margin', 0.20),
-            'boundary_repass_distance_m': self.mission_exec_cfg.get('boundary_repass_distance_m', 1.5),
-            'enable_boundary_repass': self.mission_exec_cfg.get('enable_boundary_repass', True),
-        }
-
-        mismatches = []
-        for key, runtime_val in runtime_values.items():
-            plan_val = plan_meta.get(key)
-            if plan_val is None:
-                continue
-            if isinstance(plan_val, bool) or isinstance(runtime_val, bool):
-                mismatch = bool(plan_val) != bool(runtime_val)
-            else:
-                mismatch = abs(float(plan_val) - float(runtime_val)) > 1e-6
-            if mismatch:
-                mismatches.append((key, plan_val, runtime_val))
-
-        if mismatches:
-            print(f"\n[!!! CRITICAL ERROR !!!] final_path.json was planned with different "
-                  f"parameters than this executor's current params.yaml:")
-            for key, plan_val, runtime_val in mismatches:
-                print(f"    - {key}: planned={plan_val}, current params.yaml={runtime_val}")
-            print("[-] The planned transit start points / path geometry no longer match what "
-                  "this executor would produce. Either revert params.yaml to the planned values, "
-                  "or re-run run_generation_pipeline.py to regenerate final_path.json before "
-                  "executing this mission.")
-            sys.exit(1)
-
-        print("[+] Plan/runtime parameter consistency verified (boundary_repass, robot_width, "
-              "path_safety_margin match final_path_meta.json).")
 
     # ------------------------------------------------------------------
     # ROS 환경 셋업
@@ -384,94 +238,6 @@ class MissionExecutor(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
     # ------------------------------------------------------------------
-    # AMCL 초기 위치 수렴
-    # ------------------------------------------------------------------
-
-    def _target_verification_callback(self, msg):
-        self.verified_amcl_x = msg.pose.pose.position.x
-        self.verified_amcl_y = msg.pose.pose.position.y
-
-    def _initialize_localization(self):
-        """
-        AMCL 초기 위치 수렴 스테이지 제어.
-        수렴 실패/타임아웃 시 안전하게 시스템을 다운시키고 에러 코드로 종료함.
-
-        '/amcl_pose' Subscription은 self(MissionExecutor) 노드에 생성함.
-        따라서 이 단계의 spin은 self를 기준으로 수행함.
-        """
-        print("[*] Entering Robust AMCL Initialization Stage...")
-
-        self.sub_verify = self.create_subscription(
-            PoseWithCovarianceStamped, '/amcl_pose', self._target_verification_callback, 10
-        )
-        self.initial_pose = self._mission_start_pose
-
-        start_verify_time = time.time()
-        is_localization_safe = False
-        publish_interval = 0.5
-        last_publish_time = 0.0
-
-        print("[*] Dynamically injecting Initial Pose until AMCL responds...")
-        while time.time() - start_verify_time < 20.0:
-            self.spin_executor.spin_once(timeout_sec=0.05)
-            current_time = time.time()
-
-            if self.verified_amcl_x == 0.0 or self.verified_amcl_x is None:
-                if current_time - last_publish_time >= publish_interval:
-                    self.initial_pose.header.stamp = self.navigator.get_clock().now().to_msg()
-                    self.initial_pose.pose.position.z = 0.0
-                    print(f"  └─> [Pulse] Sending Initial Pose. Stamp Sec: {self.initial_pose.header.stamp.sec}")
-                    self.navigator.setInitialPose(self.initial_pose)
-                    last_publish_time = current_time
-            else:
-                dx = self.verified_amcl_x - self.initial_pose.pose.position.x
-                dy = self.verified_amcl_y - self.initial_pose.pose.position.y
-                error_dist = (dx ** 2 + dy ** 2) ** 0.5
-
-                if error_dist > 0.5:
-                    print(f"\n[!!! CRITICAL INITIALIZATION BLOCKED !!!] AMCL initialized in the WRONG ROOM!")
-                    print(f"[-] Target: ({self.initial_pose.pose.position.x:.2f}, {self.initial_pose.pose.position.y:.2f})")
-                    print(f"[-] AMCL Refused and went to: ({self.verified_amcl_x:.2f}, {self.verified_amcl_y:.2f})")
-                    self.navigator.cancelTask()
-                    self._notify_surface_profiling_stop(success=False, message="AMCL initialized in the wrong room.")
-                    self.destroy_subscription(self.sub_verify)
-                    self.spin_executor.remove_node(self)
-                    self.destroy_node()
-                    self.navigator.destroy_node()
-                    rclpy.shutdown()
-                    sys.exit(1)
-                else:
-                    print(f"\n[+] AMCL Successfully aligned within safe zone (Error: {error_dist:.3f}m).")
-                    is_localization_safe = True
-                    break
-            time.sleep(0.05)
-
-        if not is_localization_safe:
-            print("[-] localization verification Failed.")
-            self._notify_surface_profiling_stop(success=False, message="Localization verification timed out.")
-            self.destroy_subscription(self.sub_verify)
-            self.spin_executor.remove_node(self)
-            self.destroy_node()
-            self.navigator.destroy_node()
-            rclpy.shutdown()
-            sys.exit(1)
-
-        wait_sec = self.mission_exec_cfg.get('post_localization_wait_sec', 3.0)
-        if wait_sec > 0:
-            print(f"[*] Holding position for {wait_sec:.1f}s to let AMCL settle...")
-            wait_start = time.time()
-            while time.time() - wait_start < wait_sec:
-                self.spin_executor.spin_once(timeout_sec=0.05)
-                time.sleep(0.05)
-
-        if self.is_sim:
-            print("[*] Clearing costmaps explicitly after simulation teleport & AMCL convergence...")
-            self.navigator.clearAllCostmaps()
-
-        self.destroy_subscription(self.sub_verify)
-        print("[+] Initialization Stage Cleared. Moving to Path Sampling...")
-
-    # ------------------------------------------------------------------
     # 경로 샘플링 (클램핑 전용 — 보간/샘플링은 mission_planner.py에서 완료됨)
     # ------------------------------------------------------------------
 
@@ -500,70 +266,6 @@ class MissionExecutor(Node):
             print(f"[!] Warning: {out_of_bounds_count} waypoints were nudged into the safe map zone.")
 
         return goal_poses
-
-    def _compute_mission_start_pose(self):
-        """미션이 실제로 시작해야 하는 물리적 지점(로봇을 스폰/배치해야 할
-        곳)을 계산해서 반환함.
-
-        boundary_repass가 켜져 있으면, 미션의 진짜 첫 coverage 지점(p0)이
-        아니라 거기서 진행방향으로 boundary_repass_distance_m만큼(첫
-        sub-segment 길이의 90%로 clamp) 앞선 '러닝스타트' 지점을 반환함 -
-        거기서부터 캡처를 켠 채로 p0까지 주행해 들어가는 것 자체가 미션의
-        첫 동작이 됨(run_start_prepass가 이 지점에서 p0로 들어가는 동작만
-        수행함, 배경은 HISTORY.md §1 참고). enable_boundary_repass=false이거나
-        첫 sub-segment가 너무 짧으면 p0 그대로 반환함.
-
-        반환값의 orientation은 p0를 향하는 방향(첫 sub-segment 진행방향의
-        반대)임. sim에서는 이 pose가 그대로 Gazebo 텔레포트 좌표가 되고,
-        real-world에서는 AMCL 초기 위치 힌트로 쓰이므로 실제 로봇도 이
-        좌표/방향에 물리적으로 배치돼야 함 - 아래에서 명확히 출력함.
-        """
-        goal_poses = self._prepare_goal_poses()
-        sub_segments = self._split_into_straight_subsegments(goal_poses)
-        first_s, first_e = sub_segments[0]
-        seg_poses = goal_poses[first_s:first_e]
-        p0 = seg_poses[0]
-
-        enabled = (
-            self.mission_exec_cfg.get('enable_boundary_repass', True)
-            and self.final_path[first_s]['header'].get('record_pcd', True)
-        )
-        runway_pose = self._boundary_repass.compute_runway_pose(seg_poses) if enabled else None
-
-        if runway_pose is None:
-            print(f"[*] Mission start pose = true coverage start point p0 "
-                  f"({p0.pose.position.x:.2f}, {p0.pose.position.y:.2f}) "
-                  f"(boundary repass disabled, or first segment too short for a runway).")
-            return p0
-
-        q = runway_pose.pose.orientation
-        facing_deg = math.degrees(2.0 * math.atan2(q.z, q.w)) % 360
-        d = math.hypot(runway_pose.pose.position.x - p0.pose.position.x,
-                        runway_pose.pose.position.y - p0.pose.position.y)
-        print(f"[*] Mission start pose = boundary-repass runway point "
-              f"({runway_pose.pose.position.x:.2f}, {runway_pose.pose.position.y:.2f}), "
-              f"facing {facing_deg:.0f}° toward the true coverage start "
-              f"({p0.pose.position.x:.2f}, {p0.pose.position.y:.2f}), {d:.2f}m away.")
-        if not self.is_sim:
-            print("[!] REAL-WORLD: place the robot physically at this runway point/heading "
-                  "BEFORE starting this executor (not at the coverage start point) - "
-                  "AMCL initializes from this pose.")
-
-        return runway_pose
-
-    # ------------------------------------------------------------------
-    # 주행 모니터링 콜백
-    # ------------------------------------------------------------------
-
-    def _amcl_monitor_callback(self, msg):
-        self.current_amcl_x = msg.pose.pose.position.x
-        self.current_amcl_y = msg.pose.pose.position.y
-        curr_time = time.time()
-
-        # 5Hz 샘플링 (약 0.5초 간격으로 기록)
-        if curr_time - self._last_record_time >= 0.5:
-            self.path_history.append([curr_time, self.current_amcl_x, self.current_amcl_y])
-            self._last_record_time = curr_time
 
     # ------------------------------------------------------------------
     # 미션 실행 메인 루프
@@ -624,13 +326,18 @@ class MissionExecutor(Node):
         env_text = "in Gazebo" if self.is_sim else "to Real-world Robot"
         print(f"[*] Executing Mission {env_text} (Direction-Change-Based Continuous Capture)...")
 
-        self._mission_start_wall_time = time.time()
+        if self._shared_run_ts is not None:
+            run_ts_str, self._mission_start_wall_time = self._shared_run_ts
+            print(f"[*] run_ts='{run_ts_str}' (epoch={int(self._mission_start_wall_time)}) - "
+                  "이 값을 미션 시작 시각으로 써서 drive_debug/stall_report/robot_path 파일명을 통일함.")
+        else:
+            run_ts_str = time.strftime('%Y-%m-%d_%H-%M-%S')
+            self._mission_start_wall_time = time.time()
 
-        drive_debug_log_dir = os.path.join(
-            self.workspace_root, self.mission_exec_cfg.get('drive_debug_log_dir', 'analytics/logs'))
+        drive_debug_log_dir = self._eval_output_dir(
+            self.mission_exec_cfg.get('drive_debug_log_dir', 'analytics/logs'))
         drive_debug_log_path = os.path.join(
-            drive_debug_log_dir, time.strftime('drive_debug_%Y-%m-%d_%H-%M-%S.csv',
-                                                time.localtime(self._mission_start_wall_time)))
+            drive_debug_log_dir, f"drive_debug_{run_ts_str}.csv")
         self._mission_logger = MissionLogger(
             self, drive_debug_log_path,
             interval_sec=self.mission_exec_cfg.get('drive_debug_interval_sec', 3.0),
@@ -675,28 +382,13 @@ class MissionExecutor(Node):
                     else "transit (node id unknown - regenerate path)"
 
             if seg_idx > 0 and not record_pcd and len(seg_poses) > 1:
-                # mission_planner.py는 매 노드 진입/이탈 transit의 A* 경로를
-                # 항상 current_pos(=직전 세그먼트의 마지막 점)에서부터 탐색해서
-                # 만듦 - 그 결과 final_path.json에는 세그먼트 경계마다 "직전
-                # 세그먼트의 마지막 점과 좌표가 완전히 같고 orientation만 다른"
-                # 구조적 중복점이 항상 존재함(boundary_repass와 무관하게 원래부터
-                # 있던 구조). run_exit_repass가 로봇을 그 지점보다 뒤로
-                # 물려놓으면(반대 방향을 보게 됨) 이 중복점이 로봇 기준 '뒤쪽'에
-                # 남아, min_vel_x=0.0(후진 불가) 상태에서 goThroughPoses가
-                # 순서대로 방문하려다 즉시 FAILED가 남. 이 중복점은 새 목적지
-                # 정보가 없어 repass 발동 여부와 무관하게 항상 안전하게 제거
-                # 가능함 - 로봇이 이미 그 위치에 있는 via-point 방문은 no-op이기
-                # 때문. 그래서 직전 sub-segment의 마지막 점과 좌표가 같은 경우
-                # 항상 건너뜀.
-                #
-                # 이 스킵은 record_pcd=False(transit)인 경우로만 한정함.
-                # coverage sub-segment의 첫 점은 이 문제와 무관함 - repass는
-                # coverage exit에서만 일어나고, coverage에 새로 진입할 때는
-                # 로봇이 항상 정확히 그 시작점에 있음. 여기서 record_pcd를
-                # 안 가리고 스킵하면 2점짜리(코너 없는 단일 직선) coverage
-                # 스와스가 1점으로 줄어 "고립된 단일 점"으로 오판되고, 스와스
-                # 구간 전체의 캡처가 빠지는 회귀가 생김(발견 경위·실측은
-                # HISTORY.md §1 참고).
+                # mission_planner.py가 세그먼트 경계마다 남기는 구조적
+                # 중복점(직전 세그먼트의 마지막 점과 좌표가 같고 orientation만
+                # 다름)을 제거함. 로봇이 이미 그 자리에 있어 방문 자체가
+                # no-op이고, repass로 뒤로 물러난 경우엔 후진 불가(min_vel_x=0.0)
+                # 때문에 goThroughPoses가 즉시 FAILED가 됨.
+                # transit(record_pcd=False)에만 적용함 - coverage에도 적용하면
+                # 2점짜리 스와스가 1점으로 줄어 캡처가 통째로 빠짐(HISTORY.md §1).
                 prev_last_pose = goal_poses[sub_segments[seg_idx - 1][1] - 1]
                 if (abs(seg_poses[0].pose.position.x - prev_last_pose.pose.position.x) < 1e-3
                         and abs(seg_poses[0].pose.position.y - prev_last_pose.pose.position.y) < 1e-3):
@@ -831,60 +523,6 @@ class MissionExecutor(Node):
         return merged_segments
 
     # ------------------------------------------------------------------
-    # AMCL 점프 감지 (여러 모니터링 루프에서 공용으로 재사용)
-    # ------------------------------------------------------------------
-
-    def _check_amcl_jump(self):
-        """
-        직전에 기록된 AMCL pose 대비 순간 이동 거리가 임계치(self.max_allowed_jump)를
-        넘으면 '점프 후보'로 기록함. 하지만 단발성 점프(예: 긴 직선 구간을 도는
-        동안 누적된 dead-reckoning 오차가 AMCL의 정상적인 재정렬로 한 번에 보정되는
-        경우)는 실제로는 위험이 아니라 오히려 위치 추정이 더 정확해진 것이므로,
-        그것만으로 미션을 중단시키지 않음. amcl_jump_window_sec 안에
-        amcl_jump_count_threshold번 이상 반복될 때만 진짜 비상(로컬라이제이션
-        붕괴, 텔레포트 등)으로 간주해 True를 반환함.
-
-        중요: last_valid_amcl_pose는 점프 판정 여부와 무관하게 '항상' 현재 값으로
-        갱신함 - 판정 순간에만 갱신을 건너뛰면, AMCL이 이미 새로운 위치에
-        안정적으로 자리잡은 뒤에도 계속 옛날 기준점과 비교해 '같은 점프'를
-        영원히 재판정하는 고착 상태가 생길 수 있음(비상 상황에서 절대 복구되지
-        않고 미션이 항상 중단됨).
-        """
-        if self.current_amcl_x is None or self.current_amcl_y is None:
-            return False
-
-        is_emergency = False
-
-        if self.last_valid_amcl_pose is not None:
-            dx = self.current_amcl_x - self.last_valid_amcl_pose[0]
-            dy = self.current_amcl_y - self.last_valid_amcl_pose[1]
-            jump_distance = (dx ** 2 + dy ** 2) ** 0.5
-
-            if jump_distance > self.max_allowed_jump:
-                now = time.time()
-                # 윈도우 밖으로 벗어난 오래된 기록은 버림
-                self.amcl_jump_timestamps = [
-                    t for t in self.amcl_jump_timestamps if now - t <= self.amcl_jump_window_sec
-                ]
-                self.amcl_jump_timestamps.append(now)
-
-                if len(self.amcl_jump_timestamps) >= self.amcl_jump_count_threshold:
-                    print(f"\n[!!! CRITICAL EMERGENCY !!!] AMCL jumped {len(self.amcl_jump_timestamps)} times "
-                          f"within {self.amcl_jump_window_sec:.1f}s (latest: {jump_distance:.3f}m). "
-                          f"Treating as localization failure.")
-                    is_emergency = True
-                else:
-                    print(f"[*] AMCL correction observed: {jump_distance:.3f}m "
-                          f"({len(self.amcl_jump_timestamps)}/{self.amcl_jump_count_threshold} within "
-                          f"{self.amcl_jump_window_sec:.1f}s window). Treating as a normal re-localization, "
-                          f"not aborting.")
-
-        # 점프 판정 여부와 무관하게 항상 갱신함
-        self.last_valid_amcl_pose = (self.current_amcl_x, self.current_amcl_y)
-
-        return is_emergency
-
-    # ------------------------------------------------------------------
     # 직선 sub-segment 실행 (회전 -> [필요시] 캡처 시작 -> 직선 주행+캡처).
     # coverage/transit 구분 없이 모든 직선 구간에 동일하게 적용됨. 캡처
     # 종료는 이 함수의 책임이 아님 - coverage exit 경계에서
@@ -893,17 +531,31 @@ class MissionExecutor(Node):
     # ------------------------------------------------------------------
 
     def _execute_capture_subsegment(self, seg_poses, record_pcd=True, is_genuine_single=True, seg_type='transit', label='sub-segment'):
-        self._set_angular_dist_threshold('coverage' if seg_type == 'coverage' else 'transit')
+        mode = 'coverage' if seg_type == 'coverage' else 'transit'
+        self.controller_switch.set_angular_dist_threshold(mode)
+        self.controller_switch.set_speed_limit(mode)
+        # transit은 RPP(FollowPathTransit)를 쓰는 전용 BT로, coverage는 nav2 기본 BT(DWB)로 주행함
+        # (HISTORY.md §23). 빈 문자열이면 nav2가 기본 BT를 씀.
+        bt_through = transit_bt_path('through_poses') if mode == 'transit' else ''
+        bt_to_pose = transit_bt_path('to_pose') if mode == 'transit' else ''
         capture_sec_single = self.mission_exec_cfg.get('active_capture_seconds', 2.0)
-        end_pose = seg_poses[-1]
         is_single_point = (len(seg_poses) == 1)
 
         # 1. 제자리 회전
         if is_single_point and not is_genuine_single:
-            if not self._navigate_to_pose_blocking(seg_poses[0], label=label):
+            # 코너점이 직전 sub-segment의 마지막 점과 좌표가 같아 구조적 중복점
+            # 스킵(execute_mission() 참고)에 걸리면, 그 코너점이 담당하던 큰
+            # 방향 전환이 사라진 채 이 점 하나만 남을 수 있음 - 회전 없이 바로
+            # goToPose만 쏘면 Nav2가 회전+이동을 동시에 처리해야 해서 벽/코너
+            # 근처에서 반복 stall을 일으킴(실측 확인, HISTORY.md §3 참고).
+            # _rotate_in_place_to는 목표가 현재 위치와 같거나 회전량이
+            # min_rotation_deg 미만이면 스스로 스킵하므로 안전하게 항상 먼저 호출함.
+            if not self._rotate_in_place_to(seg_poses[0], label=label):
+                print("[!] Warning: In-place rotation to isolated corner point failed or skipped. Proceeding anyway.")
+            if not self._navigate_to_pose_blocking(seg_poses[0], label=label, behavior_tree=bt_to_pose):
                 print("[!] Warning: failed to reach isolated corner point. Proceeding anyway.")
         elif not is_single_point:
-            if not self._rotate_in_place_to(end_pose, label=label):
+            if not self._rotate_in_place_to(self._pick_rotation_aim_pose(seg_poses), label=label):
                 print("[!] Warning: In-place rotation failed or skipped. Proceeding anyway.")
 
         # 2. 캡처 시작 신호.
@@ -929,7 +581,7 @@ class MissionExecutor(Node):
         if not is_single_point:
             print(f"  [Drive] Straight sub-segment: {len(seg_poses)} points "
                   f"({'continuous capture' if self._capture_active else 'no capture'} while moving).")
-            ok = self._navigate_through_poses_blocking(seg_poses, label=label)
+            ok = self._navigate_through_poses_blocking(seg_poses, label=label, behavior_tree=bt_through)
         elif started:
             print("  [Drive] Single-point sub-segment: staying in place for capture.")
             self._spin_sleep(capture_sec_single)
@@ -939,474 +591,6 @@ class MissionExecutor(Node):
             print("  [Drive] Single-point sub-segment: record_pcd=False, skipping dwell entirely.")
 
         return ok
-
-    # ------------------------------------------------------------------
-    # 제자리 회전 (nav2_msgs/action/Spin, 절대각 차이를 상대 회전량으로 변환)
-    # ------------------------------------------------------------------
-
-    def _quaternion_to_yaw(self, q):
-        # 평면 회전만 다루므로 x=y=0을 가정하고 z, w만으로 yaw를 계산함.
-        return 2.0 * math.atan2(q.z, q.w)
-
-    def _lookup_base_link_transform(self):
-        """
-        map->base_link TF를 조회함. self.spin_executor는 백그라운드 스레드 없이
-        여러 blocking 루프 안에서 수동으로 spin_once되는 방식이라(예:
-        _rotate_in_place_to의 대기 루프), tf2_ros.Buffer의 built-in timeout
-        (콜백 알림으로 깨어나는 방식)이 여기서는 작동하지 않음 - 이 호출
-        스레드가 곧 유일한 spin 주체라서, timeout만 넘기면 그 시간 동안 아무
-        콜백도 못 돌고 그냥 실패함.
-
-        run_start_prepass가 첫 액션으로 이 조회를 호출하는데, AMCL 수렴 직후
-        시점과 매우 가까워서 self.tf_buffer/tf_listener가 생성된 지 얼마 안 돼
-        버퍼에 이 조회 시각까지의 이력이 아직 없어 ExtrapolationException
-        ("Requested time ... but the earliest data is at time ...")이 간헐적으로
-        발생할 수 있음(발견 경위는 HISTORY.md §1 참고). spin_once를 직접
-        반복 펌핑하며 짧게 재시도해 흡수함.
-        """
-        timeout_sec = self.mission_exec_cfg.get('tf_lookup_retry_sec', 1.0)
-        deadline = time.time() + timeout_sec
-        last_err = None
-        while True:
-            try:
-                return self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
-            except Exception as e:
-                last_err = e
-                if time.time() >= deadline:
-                    print(f"[!] TF lookup failed for map->base_link after "
-                          f"{timeout_sec:.1f}s retry: {last_err}")
-                    return None
-                self.spin_executor.spin_once(timeout_sec=0.05)
-                time.sleep(0.02)
-
-    def _get_current_yaw_from_tf(self):
-        trans = self._lookup_base_link_transform()
-        if trans is None:
-            return None
-        return self._quaternion_to_yaw(trans.transform.rotation)
-
-    def _get_current_pose_from_tf(self):
-        """TF(map->base_link)에서 현재 (x, y, yaw)를 함께 읽어옴."""
-        trans = self._lookup_base_link_transform()
-        if trans is None:
-            return None, None, None
-        x = trans.transform.translation.x
-        y = trans.transform.translation.y
-        yaw = self._quaternion_to_yaw(trans.transform.rotation)
-        return x, y, yaw
-
-
-    def _spin_action(self, delta_yaw, label='rotate'):
-        """delta_yaw(rad)만큼 제자리 회전(nav2_msgs/action/Spin)을 1회 시도하고 성공 여부를 반환함."""
-        spin_time_allowance = self.mission_exec_cfg.get('spin_time_allowance_sec', 15.0)
-        self.navigator.spin(spin_dist=delta_yaw, time_allowance=int(spin_time_allowance))
-
-        stall_watcher = StallWatcher(f"{label} [rotate]", stall_threshold_sec=self._stall_threshold_sec())
-        try:
-            while not self.navigator.isTaskComplete():
-                rclpy.spin_once(self.navigator, timeout_sec=0.01)
-                self.spin_executor.spin_once(timeout_sec=0.0)
-                if self._check_amcl_jump():
-                    self.navigator.cancelTask()
-                    self._stall_events.extend(stall_watcher.finalize())
-                    return False
-                feedback = self.navigator.getFeedback()
-                angular_dist = getattr(feedback, 'angular_distance_traveled', None) if feedback else None
-                stall_watcher.update(angular_dist)
-                self._set_nav_status('Spin', label=label, progress_kind='angular_distance_traveled',
-                                      progress_value=angular_dist)
-                time.sleep(0.05)
-            self._stall_events.extend(stall_watcher.finalize())
-
-            result = self.navigator.getResult()
-            if result != TaskResult.SUCCEEDED:
-                print(f"[!] Warning: Spin action did not succeed (result={result}).")
-                return False
-            return True
-        finally:
-            self._set_nav_status(None)
-
-    def _backup_for_clearance(self, label='rotate'):
-        """
-        Spin이 실패했을 때 벽에서 살짝 물러나 여유를 만듦(nav2_msgs/action/BackUp).
-
-        boundary_repass 지점처럼 벽에 바짝 붙은 자리에서는 Spin의 사전 충돌
-        체크(simulate_ahead_time, tb3_waffle_nav2_params.yaml)가 제자리에
-        멈춰선 상태만으로 걸려 즉시 실패하는 경우가 실측에서 확인됨(2026-09-11).
-        로봇을 손으로 살짝 밀어 위치를 아주 조금만 바꿔줘도 통과하는 걸 보아
-        판정이 경계선상에서 발생하는 것으로 판단, 뒤로 물러나 같은 효과를 냄.
-        """
-        backup_dist = self.mission_exec_cfg.get('spin_retry_backup_dist_m', 0.15)
-        backup_speed = self.mission_exec_cfg.get('spin_retry_backup_speed_mps', 0.05)
-        backup_time_allowance = self.mission_exec_cfg.get('backup_time_allowance_sec', 10.0)
-
-        self.navigator.backup(backup_dist=backup_dist, backup_speed=backup_speed,
-                               time_allowance=int(backup_time_allowance))
-        stall_watcher = StallWatcher(f"{label} [backup]", stall_threshold_sec=self._stall_threshold_sec())
-        try:
-            while not self.navigator.isTaskComplete():
-                rclpy.spin_once(self.navigator, timeout_sec=0.01)
-                self.spin_executor.spin_once(timeout_sec=0.0)
-                if self._check_amcl_jump():
-                    self.navigator.cancelTask()
-                    self._stall_events.extend(stall_watcher.finalize())
-                    return False
-                feedback = self.navigator.getFeedback()
-                dist_traveled = getattr(feedback, 'distance_traveled', None) if feedback else None
-                stall_watcher.update(dist_traveled)
-                self._set_nav_status('BackUp', label=label, progress_kind='distance_traveled',
-                                      progress_value=dist_traveled)
-                time.sleep(0.05)
-            self._stall_events.extend(stall_watcher.finalize())
-            return self.navigator.getResult() == TaskResult.SUCCEEDED
-        finally:
-            self._set_nav_status(None)
-
-    def _direct_cmd_vel_rotate(self, target_yaw, label='rotate'):
-        """
-        Nav2 Spin(behavior_server)이 backup 후 재시도까지 실패했을 때의 최종
-        폴백 - nav2를 아예 거치지 않고 /cmd_vel을 직접 발행해 제자리 회전시킴.
-        costmap 기반 사전 충돌 체크를 하지 않음.
-
-        이게 안전하다고 보는 근거: 여기 도달한 시점엔 이미 nav2 자체 안전장치를
-        두 번(Spin 1차, 후진 후 Spin 2차) 거쳤고, 실측상 이런 지점에서 로봇을
-        손으로 살짝 밀어 위치를 아주 조금만 바꿔도 Spin이 통과하는 걸 여러 번
-        확인함(2026-09-11) - 즉 공간 자체가 막힌 게 아니라 simulate_ahead_time
-        사전 체크가 경계선에서 과민하게 거부하는 것. 그래도 무제한 신뢰하지는
-        않고, AMCL jump 감지와 전체 시간제한(direct_rotate_timeout_sec)만은
-        자체 안전장치로 유지함.
-        """
-        angular_speed = self.mission_exec_cfg.get('direct_rotate_speed_rad_s', 0.3)
-        timeout_sec = self.mission_exec_cfg.get('direct_rotate_timeout_sec', 20.0)
-        tolerance_rad = math.radians(self.mission_exec_cfg.get('min_rotation_deg', 3.0))
-
-        print("  [Rotate] Escalating to direct /cmd_vel rotation (bypassing nav2 behavior_server)...")
-
-        start_time = time.time()
-        success = False
-        try:
-            while time.time() - start_time < timeout_sec:
-                self.spin_executor.spin_once(timeout_sec=0.0)
-                if self._check_amcl_jump():
-                    print("  [Rotate] AMCL jump detected during direct rotation - aborting.")
-                    break
-
-                _, _, current_yaw = self._get_current_pose_from_tf()
-                if current_yaw is None:
-                    break
-
-                remaining = math.atan2(math.sin(target_yaw - current_yaw), math.cos(target_yaw - current_yaw))
-                self._set_nav_status('DirectCmdVelSpin', label=label, progress_kind='remaining_delta_rad',
-                                      progress_value=abs(remaining))
-
-                if abs(remaining) < tolerance_rad:
-                    success = True
-                    break
-
-                twist = Twist()
-                twist.angular.z = math.copysign(angular_speed, remaining)
-                self._cmd_vel_pub.publish(twist)
-                time.sleep(0.05)
-        finally:
-            self._cmd_vel_pub.publish(Twist())  # 정지
-            self._set_nav_status(None)
-
-        if success:
-            print("  [Rotate] Direct /cmd_vel rotation succeeded.")
-        else:
-            print("  [Rotate] Direct /cmd_vel rotation failed (timeout or TF/AMCL issue). Proceeding anyway.")
-        return success
-
-    def _rotate_in_place_to(self, target_pose, label='rotate'):
-        """
-        현재 위치에서 target_pose(위치)를 향하도록 회전함.
-
-        target_pose.orientation을 그대로 쓰지 않음 - 그 값은 "target_pose에
-        도착한 뒤 다음 지점을 향해야 할 방향"으로 저장된 값이라(translator.py의
-        forward-looking 방식), 아직 target_pose에 도착 전인 지금 그 방향을 미리
-        향하면 코너 직전 지점에서 코너를 건너뛰고 그 다음 방향을 미리 보게 됨.
-
-        따라서 "현재 위치 -> target_pose 위치"를 atan2로 직접 계산해서 목표각으로 씀.
-
-        3단계 에스컬레이션(2026-09-11, 벽 근접 지점에서 반복적으로 멈춰서는 문제의
-        실측 대응):
-          1) Spin(nav2_msgs/action/Spin) 1차 시도.
-          2) 실패 시 BackUp으로 살짝 물러나 여유를 만든 뒤, 그 자리에서 다시 목표각을
-             계산해 Spin 재시도(물러난 자리는 사방이 트여 있으므로 "away 방향"이 아니라
-             바로 최종 목표각으로 한 번에 회전함 - 물러난 지점에서 원래 지점(벽 근처)
-             으로의 복귀는 이 함수가 아니라 다음 구간의 직선 주행이 담당하므로, 벽에
-             근접한 채로 다시 회전을 시도할 일은 없음. 직선 주행은 실측상 벽 코앞까지도
-             정상 동작함).
-          3) 그래도 실패하면(BackUp 자체도 막힌 경우 포함) _direct_cmd_vel_rotate로
-             nav2를 아예 거치지 않고 /cmd_vel을 직접 발행해 회전시킴 - 이 지점까지 온
-             시점엔 이미 nav2 자체 안전장치를 두 번 거친 뒤이므로 최종 폴백으로 사용함.
-        """
-        current_x, current_y, current_yaw = self._get_current_pose_from_tf()
-        if current_yaw is None:
-            return False
-
-        dx = target_pose.pose.position.x - current_x
-        dy = target_pose.pose.position.y - current_y
-        if math.hypot(dx, dy) < 1e-3:
-            print("  [Rotate] Target is at current position. Skipping spin.")
-            return True
-
-        target_yaw = math.atan2(dy, dx)
-        delta_yaw = target_yaw - current_yaw
-        delta_yaw = math.atan2(math.sin(delta_yaw), math.cos(delta_yaw))
-
-        min_rotation_rad = math.radians(self.mission_exec_cfg.get('min_rotation_deg', 3.0))
-        if abs(delta_yaw) < min_rotation_rad:
-            print(f"  [Rotate] Already aligned (delta={math.degrees(delta_yaw):.1f}°). Skipping spin.")
-            return True
-
-        print(f"  [Rotate] current={math.degrees(current_yaw):.1f}°, "
-            f"target={math.degrees(target_yaw):.1f}° (toward next goal), delta={math.degrees(delta_yaw):.1f}°")
-
-        if self._spin_action(delta_yaw, label=label):
-            return True
-
-        print("  [Rotate] Spin failed (likely collision pre-check near wall) - "
-              "backing up for clearance and retrying...")
-        if not self._backup_for_clearance(label=label):
-            print("  [Rotate] Backup also failed too - escalating to direct /cmd_vel rotation.")
-            return self._direct_cmd_vel_rotate(target_yaw, label=label)
-
-        current_x, current_y, current_yaw = self._get_current_pose_from_tf()
-        if current_yaw is None:
-            return False
-        dx = target_pose.pose.position.x - current_x
-        dy = target_pose.pose.position.y - current_y
-        retry_target_yaw = math.atan2(dy, dx)
-        retry_delta_yaw = math.atan2(math.sin(retry_target_yaw - current_yaw), math.cos(retry_target_yaw - current_yaw))
-        print(f"  [Rotate] Retrying with clearance: current={math.degrees(current_yaw):.1f}°, "
-              f"target={math.degrees(retry_target_yaw):.1f}°, delta={math.degrees(retry_delta_yaw):.1f}°")
-        if self._spin_action(retry_delta_yaw, label=label):
-            return True
-
-        print("  [Rotate] Spin retry after backup also failed - escalating to direct /cmd_vel rotation.")
-        return self._direct_cmd_vel_rotate(retry_target_yaw, label=label)
-
-    def _stall_threshold_sec(self):
-        return self.mission_exec_cfg.get('stall_log_threshold_sec', 5.0)
-
-    def _set_nav_status(self, action, label=None, progress_kind=None, progress_value=None, recoveries=None):
-        """MissionLogger(백그라운드 스레드)가 읽을 "지금 어떤 nav2 액션이 떠
-        있고 그 진행 지표가 얼마인지"를 통째로 새 dict로 재할당함(스레드
-        세이프성 근거는 mission_logger.py 모듈 docstring 참고). action=None은
-        "지금 어떤 nav2 액션도 실행 중이 아님(idle)"을 뜻함."""
-        self._nav_status = {
-            'action': action,
-            'label': label,
-            'progress_kind': progress_kind,
-            'progress_value': progress_value,
-            'number_of_recoveries': recoveries,
-        }
-
-    # ------------------------------------------------------------------
-    # 직선 주행 (nav2_msgs/action/NavigateToPose, coverage run의 끝점으로 1회 전송)
-    # ------------------------------------------------------------------
-
-    def _navigate_to_pose_blocking(self, pose, label='drive-to-pose', _retry=False):
-        """
-        nav2의 기본 recovery BT(navigate_to_pose_w_replanning_and_recovery.xml)는
-        스스로 포기하는 시점이 없어서, 좁은 문지방 등에서 막히면
-        number_of_recoveries만 계속 늘려가며 사실상 무한히 재시도함(실측
-        2026-09-11: distance_remaining이 0.93~0.95m에서 200초+ 정체, recoveries
-        18회+ 누적되고도 안 끝남 - drive_debug 로그로 확인됨). 그래서 여기서
-        직접 "진행 없음이 nav_stuck_cancel_sec 이상 지속되면 취소" 워치독을
-        둠 - StallWatcher(사후 리포트용)와 별개로 지금 당장 개입하기 위한
-        자체 추적임. 취소 후 한 번은 후진(_backup_for_clearance)으로 여유를
-        만들고 같은 목표를 재전송함(_retry=True) - 그래도 막히면 그때는
-        포기하고 세그먼트 실패로 처리함(직선 주행을 costmap 체크 없이 강행
-        하는 건 회전보다 위험도가 높아 direct cmd_vel 폴백은 두지 않음).
-        """
-        self.navigator.goToPose(pose)
-
-        stall_watcher = StallWatcher(f"{label} [drive]", stall_threshold_sec=self._stall_threshold_sec())
-        stuck_cancel_sec = self.mission_exec_cfg.get('nav_stuck_cancel_sec', 45.0)
-        last_debug_print_time = time.time()
-        last_progress_value = None
-        last_progress_time = time.time()
-        try:
-            while not self.navigator.isTaskComplete():
-                rclpy.spin_once(self.navigator, timeout_sec=0.01)
-                self.spin_executor.spin_once(timeout_sec=0.0)
-                current_time = time.time()
-
-                if self._check_amcl_jump():
-                    self.navigator.cancelTask()
-                    self._stall_events.extend(stall_watcher.finalize())
-                    return False
-
-                feedback = self.navigator.getFeedback()
-                remaining = getattr(feedback, 'distance_remaining', None) if feedback else None
-                recoveries = getattr(feedback, 'number_of_recoveries', None) if feedback else None
-                stall_watcher.update(remaining, recoveries=recoveries)
-                self._set_nav_status('NavigateToPose', label=label, progress_kind='distance_remaining',
-                                      progress_value=remaining, recoveries=recoveries)
-
-                if remaining is not None and (last_progress_value is None
-                                               or abs(remaining - last_progress_value) > 0.05):
-                    last_progress_value = remaining
-                    last_progress_time = current_time
-
-                if current_time - last_progress_time >= stuck_cancel_sec:
-                    print(f"[!] {label}: stuck {stuck_cancel_sec:.0f}s+ with no real progress "
-                          f"(distance_remaining={remaining}, recoveries={recoveries}) - canceling nav2 task.")
-                    self.navigator.cancelTask()
-                    self._stall_events.extend(stall_watcher.finalize())
-                    if _retry:
-                        print(f"  [!] {label}: retry also got stuck. Giving up.")
-                        return False
-                    print(f"  [!] {label}: backing up and retrying once...")
-                    self._backup_for_clearance(label=label)
-                    return self._navigate_to_pose_blocking(pose, label=label, _retry=True)
-
-                if current_time - last_debug_print_time >= 1.0:
-                    if remaining is not None:
-                        print(f"  ├─ Driving swath... distance remaining: {remaining:.2f}m")
-                    last_debug_print_time = current_time
-
-                time.sleep(0.05)
-            self._stall_events.extend(stall_watcher.finalize())
-
-            result = self.navigator.getResult()
-            if result != TaskResult.SUCCEEDED:
-                print(f"[-] Swath drive ended without SUCCEEDED (result={result}).")
-                return False
-            return True
-        finally:
-            self._set_nav_status(None)
-
-    def _set_angular_dist_threshold(self, mode):
-        """
-        FollowPath.angular_dist_threshold를 coverage/transit에 따라 실행 중에
-        바꿈. coverage(정밀 측정 구간)는 yaml 기본값을 유지해 정확한 제자리
-        회전을 쓰고, transit(코너/문지방 통과 구간)은 사실상 무제한에 가깝게
-        풀어서 RotationShimController의 강제 제자리 회전 자체를 비활성화함 -
-        좁은 공간에서 제자리 회전이 벽에 막혀 못 빠져나오는 문제의 대응임
-        (waffle.yaml 값은 정적이라 재시작 없인 못 바꾸므로 set_parameters로
-        실행 중에 전환함).
-        """
-        if mode == getattr(self, '_current_angular_mode', None):
-            return True
-
-        from rcl_interfaces.srv import SetParameters
-        from rcl_interfaces.msg import Parameter as RclParameter, ParameterValue, ParameterType
-
-        if self._controller_param_client is None:
-            self._controller_param_client = self.create_client(
-                SetParameters, '/controller_server/set_parameters'
-            )
-
-        coverage_threshold = self.mission_exec_cfg.get('coverage_angular_dist_threshold', 0.780)
-        transit_threshold = self.mission_exec_cfg.get('transit_angular_dist_threshold', 3.140)
-        value = coverage_threshold if mode == 'coverage' else transit_threshold
-
-        if not self._controller_param_client.wait_for_service(timeout_sec=2.0):
-            print("[!] Warning: /controller_server/set_parameters unavailable. "
-                  "Threshold switch skipped - RotationShim will keep using the static yaml value.")
-            return False
-
-        param = RclParameter(
-            name='FollowPath.angular_dist_threshold',
-            value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=value)
-        )
-        request = SetParameters.Request(parameters=[param])
-        future = self._controller_param_client.call_async(request)
-
-        spin_start = time.time()
-        while not future.done() and (time.time() - spin_start) < 2.0:
-            self.spin_executor.spin_once(timeout_sec=0.1)
-
-        ok = (future.done() and future.result() is not None
-              and all(r.successful for r in future.result().results))
-        if ok:
-            self._current_angular_mode = mode
-            print(f"  [Threshold] FollowPath.angular_dist_threshold -> {value:.3f} rad (mode={mode})")
-        else:
-            print(f"  [!] Warning: Failed to set angular_dist_threshold (mode={mode}).")
-        return ok
-
-    def _navigate_through_poses_blocking(self, seg_poses, label='drive-through-poses', _retry=False):
-        """
-        seg_poses 전체를 NavigateThroughPoses(goThroughPoses)로 한 번에 전달함.
-        goToPose(end_pose)만 보내면 중간 지점(특히 코너 꼭짓점)을 글로벌 플래너가
-        반드시 지나가야 할 이유가 없어 코너를 넓게 잘라가며 지나가는 문제가
-        생김. NavigateThroughPoses는 리스트의 모든 (x,y)를 반드시 통과해야
-        하는 지점으로 취급하므로 코너 꼭짓점(seg_poses[0])을 실제로 스치듯
-        지나가도록 강제할 수 있음.
-
-        주의: 중간 지점들의 orientation은 글로벌 플래너가 강제하지 않음
-        (위치만 통과 지점으로 취급됨). 최종 목표(seg_poses[-1])의 orientation만
-        도착 시 정렬 대상이 됨.
-
-        _navigate_to_pose_blocking과 동일한 이유로 "진행 없음이
-        nav_stuck_cancel_sec 이상 지속되면 취소 -> 후진 -> 1회 재시도 -> 그래도
-        막히면 포기" 워치독을 둠(nav2 기본 recovery BT가 스스로 포기하지 않는
-        문제의 실측 대응, 2026-09-11 - 자세한 배경은 _navigate_to_pose_blocking
-        참고).
-        """
-        self.navigator.goThroughPoses(seg_poses)
-
-        stall_watcher = StallWatcher(f"{label} [drive]", stall_threshold_sec=self._stall_threshold_sec())
-        stuck_cancel_sec = self.mission_exec_cfg.get('nav_stuck_cancel_sec', 45.0)
-        last_debug_print_time = time.time()
-        last_progress_value = None
-        last_progress_time = time.time()
-        try:
-            while not self.navigator.isTaskComplete():
-                rclpy.spin_once(self.navigator, timeout_sec=0.01)
-                self.spin_executor.spin_once(timeout_sec=0.0)
-                current_time = time.time()
-
-                if self._check_amcl_jump():
-                    self.navigator.cancelTask()
-                    self._stall_events.extend(stall_watcher.finalize())
-                    return False
-
-                feedback = self.navigator.getFeedback()
-                remaining = getattr(feedback, 'distance_remaining', None) if feedback else None
-                n_left = getattr(feedback, 'number_of_poses_remaining', None) if feedback else None
-                recoveries = getattr(feedback, 'number_of_recoveries', None) if feedback else None
-                stall_watcher.update(remaining, recoveries=recoveries)
-                self._set_nav_status('NavigateThroughPoses', label=label, progress_kind='distance_remaining',
-                                      progress_value=remaining, recoveries=recoveries)
-
-                if remaining is not None and (last_progress_value is None
-                                               or abs(remaining - last_progress_value) > 0.05):
-                    last_progress_value = remaining
-                    last_progress_time = current_time
-
-                if current_time - last_progress_time >= stuck_cancel_sec:
-                    print(f"[!] {label}: stuck {stuck_cancel_sec:.0f}s+ with no real progress "
-                          f"(distance_remaining={remaining}, recoveries={recoveries}) - canceling nav2 task.")
-                    self.navigator.cancelTask()
-                    self._stall_events.extend(stall_watcher.finalize())
-                    if _retry:
-                        print(f"  [!] {label}: retry also got stuck. Giving up.")
-                        return False
-                    print(f"  [!] {label}: backing up and retrying once...")
-                    self._backup_for_clearance(label=label)
-                    return self._navigate_through_poses_blocking(seg_poses, label=label, _retry=True)
-
-                if current_time - last_debug_print_time >= 1.0:
-                    # if remaining is not None:
-                    #     print(f"  ├─ Driving through {len(seg_poses)} points... "
-                    #         f"distance remaining: {remaining:.2f}m, poses left: {n_left}")
-                    last_debug_print_time = current_time
-
-                time.sleep(0.05)
-            self._stall_events.extend(stall_watcher.finalize())
-
-            result = self.navigator.getResult()
-            if result != TaskResult.SUCCEEDED:
-                print(f"[-] Through-poses drive ended without SUCCEEDED (result={result}).")
-                return False
-            return True
-        finally:
-            self._set_nav_status(None)
 
     # ------------------------------------------------------------------
     # 캡처 시퀀스 보조 유틸 (settle 대기, surface_profiler 서비스 호출)
@@ -1478,99 +662,6 @@ class MissionExecutor(Node):
             print(f"[*] Notified '{service_name}': success={response.success}, message='{response.message}'")
         else:
             print(f"[!] Warning: No response from '{service_name}' within timeout.")
-
-    # ------------------------------------------------------------------
-    # 결과 저장
-    # ------------------------------------------------------------------
-
-    def _write_stall_report(self):
-        """execute_mission() 동안 쌓인 self._stall_events(5초 이상 진행이 멈춘
-        구간, StallWatcher 참고)만 따로 CSV 한 파일에 출력함 - 다른 로그와
-        섞이지 않게 해서 grep/정렬만으로 어디서 얼마나/왜(recoveries 발동 여부)
-        지연됐는지 바로 확인할 수 있게 하기 위함. 성공/실패/취소와 무관하게
-        항상 호출됨."""
-        if self._mission_start_wall_time is None:
-            return
-
-        log_dir = os.path.join(self.workspace_root, self.mission_exec_cfg.get('stall_log_dir', 'analytics/logs'))
-        try:
-            os.makedirs(log_dir, exist_ok=True)
-            log_path = os.path.join(log_dir, f"stall_report_{int(self._mission_start_wall_time)}.csv")
-            write_stall_report(
-                self._stall_events, log_path, self._mission_start_wall_time,
-                threshold_sec=self._stall_threshold_sec(),
-            )
-            print(f"[*] Stall report ({len(self._stall_events)} stall(s) >= "
-                  f"{self._stall_threshold_sec():.1f}s) saved to: {log_path}")
-        except Exception as e:
-            print(f"[-] Failed to write stall report: {e}")
-            traceback.print_exc()
-
-    def _save_mission_results(self):
-        # FollowWaypoints는 coverage 지점마다 별도의 goal로 나뉘어 순차 전송되므로,
-        # navigator.getResult()는 "마지막으로 보낸 세그먼트" 하나의 결과만 반영함.
-        # 미션 전체의 성공/실패는 execute_mission()에서 추적한 self.mission_succeeded를
-        # 우선 참조하고, result는 로그 참고용으로만 사용함.
-        result = self.navigator.getResult()
-        overall_success = self.mission_succeeded
-
-        # 주행 지연(stall) 리포트는 성공/실패/취소와 무관하게 항상 남김 -
-        # "끝까지 완주는 했지만 중간중간 오래 멈췄던 구간"을 디버깅하는 것이
-        # 목적이므로, 오히려 실패한 실행에서도 마지막 stall이 실패 원인일 수
-        # 있어 더 중요함. 다른 로그와 섞이지 않도록 별도 파일 하나에만 씀.
-        self._write_stall_report()
-
-        if overall_success:
-            print("[+] Mission Successfully Completed!")
-            self._notify_surface_profiling_stop(success=True, message="Mission completed successfully.")
-
-            # CSV 데이터 저장
-            output_path_dir = os.path.join(self.workspace_root, self.mission_exec_cfg.get('output_path_dir', 'analytics/paths'))
-            os.makedirs(output_path_dir, exist_ok=True)
-            csv_filename = os.path.join(output_path_dir, f"robot_path_{int(time.time())}.csv")
-
-            try:
-                with open(csv_filename, mode='w', newline='') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(["timestamp", "x", "y"])
-                    writer.writerows(self.path_history)
-                print(f"[+] Successfully saved robot path history to '{csv_filename}'.")
-
-                # 결과 시각화(PNG) 저장
-                vis_dir = os.path.join(self.workspace_root, self.mission_exec_cfg.get('visualization_dir', 'visualization/mission_execution'))
-                os.makedirs(vis_dir, exist_ok=True)
-                img_out_path = os.path.join(vis_dir, f"robot_path_{int(time.time())}_plot.png")
-
-                visualize_paths(csv_filename, self.final_path, img_out_path)
-
-                risk_img_path = os.path.join(vis_dir, f"robot_path_{int(time.time())}_wall_risk.png")
-                visualize_planned_wall_proximity(
-                    self.final_path, self.map_yaml_path, risk_img_path,
-                    robot_radius_m=self.env_cfg.get('robot_width', 0.15),
-                )
-
-                stall_img_path = os.path.join(vis_dir, f"robot_path_{int(time.time())}_stall.png")
-                visualize_stall_points(csv_filename, stall_img_path)
-
-            except Exception as e:
-                print(f"[-] Failed to save outputs due to error: {e}")
-                traceback.print_exc()
-
-        elif result == TaskResult.CANCELED:
-            print(f"\n[!] Mission was canceled! (last segment result={result})")
-            self._notify_surface_profiling_stop(success=False, message="Mission was canceled.")
-        else:
-            print(f"\n[-] Mission failed! (last segment result={result})")
-            self._notify_surface_profiling_stop(success=False, message="Mission failed.")
-
-        # ROS 2 자원 안전 셧다운 (데드락 방지: subscription들은 execute_mission/_initialize_localization
-        # 단계에서 이미 정리되었으므로 여기서는 executor/노드/컨텍스트 종료만 수행함)
-        self.spin_executor.remove_node(self)
-        self.destroy_node()
-        if self.navigator is not None:
-            self.navigator.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
 
     # ------------------------------------------------------------------
     # 외부 실행 엔트리포인트

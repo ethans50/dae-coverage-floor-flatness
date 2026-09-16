@@ -24,6 +24,20 @@ def generate_launch_description():
     Terminal Command:
         ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true
         ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=false
+
+        # EVAL.md 알고리즘 비교 실험용 - 라벨을 주면 이번 수집물(pcd/heatmap)을
+        # <workspace_root>/eval_runs/<라벨>/ 아래로 모아 저장함(안 주면 기존 동작 그대로).
+        # mission_execution.launch.py에 준 라벨과 반드시 같은 값을 줘야 함:
+        ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true eval_run_label:=algo1_centroid
+
+        # run_ts까지 같이 주면 combined/raw pcd 파일명이 mission_execution.launch.py
+        # 쪽 drive_debug/stall_report/robot_path csv 파일명과 통일됨(양쪽 launch
+        # 명령에 사람이 직접 동일한 값을 입력해야 함, eval_run_label과 동일한
+        # 패턴) - 이 노드가 mission_executor.py보다 먼저 시작되므로, run_ts는
+        # "이 노드가 실제로 시작한 시각"이 아니라 "이번 실험 전체를 가리키는
+        # 공유 식별자"로 미리 정해서 넘기는 값임. 형식은
+        # 'YYYY-MM-DD_HH-MM-SS'(예: `$(date +%Y-%m-%d_%H-%M-%S)`):
+        ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true eval_run_label:=algo1_centroid run_ts:=2026-09-14_14-17-31
     """
 
     is_sim_arg = DeclareLaunchArgument(
@@ -31,8 +45,20 @@ def generate_launch_description():
         default_value='false',
         description='true면 Gazebo 시뮬레이션 모드, false면 실제 로봇(Real-world) 모드로 동작'
     )
+    eval_run_label_arg = DeclareLaunchArgument(
+        'eval_run_label',
+        default_value='',
+        description='EVAL.md 알고리즘 비교 실험용 라벨 - 비어있으면(기본값) 기존과 동일한 flat 경로에 저장함'
+    )
+    run_ts_arg = DeclareLaunchArgument(
+        'run_ts',
+        default_value='',
+        description="EVAL.md 실험용 공유 타임스탬프('YYYY-MM-DD_HH-MM-SS') - mission_execution.launch.py에도 같은 값을 줘야 파일명이 통일됨. 비어있으면(기본값) 기존처럼 자체 시각을 찍음"
+    )
 
     is_sim = LaunchConfiguration('is_sim')
+    eval_run_label = LaunchConfiguration('eval_run_label')
+    run_ts = LaunchConfiguration('run_ts')
 
     surface_profiler_node = Node(
         package='dae_coverage_floor_flatness',
@@ -43,11 +69,15 @@ def generate_launch_description():
         parameters=[{
             'is_sim': is_sim,
             'use_sim_time': is_sim,
+            'eval_run_label': eval_run_label,
+            'run_ts': run_ts,
         }]
     )
 
     ld = LaunchDescription()
     ld.add_action(is_sim_arg)
+    ld.add_action(eval_run_label_arg)
+    ld.add_action(run_ts_arg)
     ld.add_action(surface_profiler_node)
 
     return ld

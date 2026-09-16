@@ -48,8 +48,8 @@ mission_planner:
   lidar_vertical_fov_deg: 15.0 # 수직 FOV 절반
   lidar_mount_height: 0.338 # (m) base_footprint(지면) 기준 velodyne_link 높이. 실측하여 정확한 값을 기입바람.
   path_safety_margin: 0.25 # robot_width + path_safety_margin 만큼 경로가 벽에서 떨어져서 생성되도록 함.
-  # (2026-09-11) 0.20 -> 0.25로 상향: local_costmap의 inflation_radius(0.25m, tb3_waffle_nav2_params.yaml)보다
-  # 여유가 부족하면, 벽 근접 지점에서 제자리 회전(Spin) 시 사전 충돌 체크에 걸려 실패하는 문제가 실측에서 확인됨.
+  # local_costmap의 inflation_radius(0.25m, tb3_waffle_nav2_params.yaml)보다 여유가 부족하면
+  # 벽 근접 지점에서 제자리 회전(Spin)이 사전 충돌 체크에 걸려 실패하므로 그 이상으로 둠(HISTORY.md §6).
 
   lidar_range: 3.0 # 라이다 측정 최대 범위 (m)
   overlap: 0.2 # 이동하면서 측정 시 오버랩할 비율
@@ -62,11 +62,23 @@ mission_planner:
   wall_weight: 12.0
 
   # [Ablation 실험용 토글] 연구 기여점 정량 비교를 위해 각 메커니즘을 개별
-  # on/off 가능하게 함(paper.md 결론, 2026-09-03). boundary repass는
+  # on/off 가능하게 함(EVAL.md 참고). boundary repass는
   # mission_execution.enable_boundary_repass로 이미 토글 가능함.
-  enable_pendant_reorder: true       # false면 Step2.5 허브-pendant 재정렬 생략(Christofides 순서 그대로)
-  enable_entry_hint_ordering: true   # false면 노드 내 스와스 순서가 진입/진출 방향과 무관하게 고정됨
-  enable_path_simplification: true   # false면 A* transit 경로의 계단현상 제거(Douglas-Peucker)를 생략
+  # 기본값(=평소/알고리즘3 "현재 알고리즘") 전부 true - 실험 후 반드시 이
+  # 기본값으로 되돌릴 것.
+  enable_pendant_reorder: true       # 기본값 true. true=Step2.5 허브-pendant 재정렬 적용, false=적용 안 하고 Christofides 순서 그대로 씀
+  enable_entry_hint_ordering: true   # 기본값 true. true=노드 내 스와스 순서를 진입/진출 방향에 맞춰 정렬, false=방향과 무관하게 고정 순서로 정렬 (위와 동일)
+  enable_path_simplification: true   # 기본값 true. true=A* transit 경로의 계단현상 제거(Douglas-Peucker) 적용, false=적용 안 해서 계단현상이 그대로 남음 (위와 동일)
+
+  # [알고리즘 비교 실험용 토글] EVAL.md 3-way 비교(CentroidOnly/AllOff/Ours,
+  # 구 명칭 algo1_centroid/algo2_zigzag/algo3_full) 전용임. 위 3개 토글 +
+  # mission_execution.enable_boundary_repass와 함께 조합해 사용함 - 각
+  # 조합별 정확한 값은 EVAL.md §2 표 참고.
+  # *** 기본값(평소 상태): coverage_mode="full", enable_optimal_swath_angle=true.
+  # 실험 중 아래를 바꿨다면 실험이 끝나는 대로 반드시 이 기본값으로 되돌릴 것 -
+  # 안 그러면 이후 모든 정상 미션이 조용히 centroid_only/zigzag 모드로 계속 돎. ***
+  coverage_mode: "full"       # 기본값 "full". "full"=F2C로 노드 전체를 커버리지 스와스로 훑음, "centroid_only"=스와스 생성 없이 노드 중앙점 1점만 방문(EVAL.md 3-way/leave-one-out 실험 전부 완료돼 기본값으로 복귀함)
+  enable_optimal_swath_angle: true    # 기본값 true. true=wide 노드에서 generateBestSwaths로 최적 각도 자동탐색, false=각도 탐색 없이 0도 고정 스와스 (위와 동일)
 
 # ==============================================================================
 # [3. Mission Execution - Robot Driving & Tracking Component]
@@ -82,8 +94,12 @@ mission_execution:
   coverage_angular_dist_threshold: 0.780   # coverage 구간 - yaml 기본값과 동일(정밀 회전 유지)
   transit_angular_dist_threshold: 3.140    # transit 구간 - 사실상 강제 회전 비활성화
 
+  coverage_speed_limit_mps: 0.16   # coverage 구간 - DWB의 FollowPath.max_vel_x/max_speed_xy로 들어감(측정 정밀도 검증된 속도 유지)
+  transit_speed_limit_mps: 0.26    # transit 구간 - RPP의 FollowPathTransit.desired_linear_vel로 들어감. 캡처 없이 이동만 하므로 TB3 Waffle 모터 스펙상 최대 선속도까지 올림(HISTORY.md §21/§23)
+
   active_capture_seconds: 2.0
   min_rotation_deg: 3.0          # 이 이하 각도차는 회전 생략
+  rotate_aim_min_dist_m: 0.15    # sub-segment 주행 전 회전 시 조준할 점을 고르는 최소 거리. 이보다 가까운 점은 atan2가 노이즈가 되므로 건너뜀(HISTORY.md §22)
   spin_time_allowance_sec: 15.0
   tf_lookup_retry_sec: 1.0       # map->base_link TF 조회 실패 시 재시도할 최대 시간(초). 버퍼/리스너 생성 직후처럼 TF 이력이 아직 얕을 때의 일시적 ExtrapolationException을 흡수함.
 
@@ -94,8 +110,12 @@ mission_execution:
   # 한쪽만 메워짐(utils/boundary_repass.py 참고). 미션의 진짜 첫 지점은
   # "접근" 방향 시야가 아예 없어 별도로 run_start_prepass가 보완함.
   # blind cone이 없는 센서로 교체되면 false로 꺼서 완전히 비활성화 가능.
-  enable_boundary_repass: true
-  boundary_repass_distance_m: 3.0   # 왕복 거리 (m). blind_radius_m(약 1.26m)의 약 2배 이상 필요함이 2026-09-01 실주행 히트맵 육안 확인으로 재확인됨(1.5m로는 부족, 2026-08-25 최초 관찰 반영). 세그먼트가 이보다 짧으면 자동으로 세그먼트 길이에 맞춰 clamp됨.
+  # 기본값 true. true=exit마다 되짚기 보정 수행, false=보정 없이 바로 다음
+  # 구간으로 이동(EVAL.md 알고리즘 비교 실험에서 AllOff(구 algo2_zigzag)
+  # 조합에 쓰임 - mission_planner의 coverage_mode/enable_optimal_swath_angle과
+  # 마찬가지로 실험 후 반드시 true로 되돌릴 것).
+  enable_boundary_repass: true   # 기본값 true. ablation 실험 시에만 false로 내리고 끝나면 반드시 되돌릴 것.
+  boundary_repass_distance_m: 3.0   # 왕복 거리 (m). blind_radius_m(약 1.26m)의 2배 이상이 필요함(근거는 HISTORY.md §1/§6). 세그먼트가 이보다 짧으면 자동으로 세그먼트 길이에 맞춰 clamp됨.
 
   # [Stall Logging] nav2 goToPose/goThroughPoses/Spin feedback을 blocking 대기
   # 루프 안에서 계속 폴링해, 진행 지표(distance_remaining/angular_distance_traveled)가
@@ -113,8 +133,7 @@ mission_execution:
   # 그 구체적 원인 1차 진단(utils/mission_logger.py._build_stall_reason)까지
   # 같은 줄에 덧붙임. stall_log_dir의 사후 요약(stall_report_*.csv)과 달리
   # 미션 도중 실시간으로 계속 쌓여서, 프로세스가 중간에 죽어도 그때까지 기록이
-  # 남음. 벽 근접이 아닌 "방 한복판"에서 멈추는 사례처럼 원인이 불분명할 때를
-  # 위해 2026-09-11 도입.
+  # 남음. 도입 배경은 HISTORY.md §4 참고.
   drive_debug_log_dir: "analytics/logs"
   drive_debug_interval_sec: 3.0
   drive_debug_stall_threshold_sec: 9.0
@@ -122,7 +141,7 @@ mission_execution:
   # [Spin Retry] boundary_repass 지점처럼 벽에 바짝 붙은 자리에서 Spin의 사전
   # 충돌 체크(behavior_server의 simulate_ahead_time, tb3_waffle_nav2_params.yaml)에
   # 걸려 즉시 실패하는 경우, 살짝 후진(BackUp)해 여유를 만든 뒤 1회만 재시도함
-  # (_rotate_in_place_to/_backup_for_clearance, 2026-09-11 실측 도입).
+  # (_rotate_in_place_to/_backup_for_clearance, DETAILS.md §3의 escalation 표 참고).
   spin_retry_backup_dist_m: 0.15
   spin_retry_backup_speed_mps: 0.05
   backup_time_allowance_sec: 10.0
@@ -130,17 +149,27 @@ mission_execution:
   # [Direct cmd_vel Rotate - 최종 폴백] Spin 1차 시도 + (후진 후) 재시도까지
   # 실패하면(혹은 후진 자체도 막히면), nav2 behavior_server를 아예 거치지 않고
   # /cmd_vel을 직접 발행해 제자리 회전시킴 - costmap 사전 충돌 체크를 하지
-  # 않으므로 느린 속도로만 사용함(2026-09-11 도입, _direct_cmd_vel_rotate).
+  # 않으므로 느린 속도로만 사용함(_direct_cmd_vel_rotate).
   direct_rotate_speed_rad_s: 0.3
   direct_rotate_timeout_sec: 20.0
 
+  # [Direct cmd_vel Forward Creep - 최종 폴백 3단계] _navigate_through_poses_blocking이
+  # 취소+후진+재시도(2단계)까지도 nav_stuck_cancel_sec 이상 진행이 없으면,
+  # nav2를 아예 거치지 않고 /cmd_vel을 직접 발행해 현재 heading 그대로 짧게
+  # 직진시킨 뒤 goThroughPoses를 마지막으로 한 번 더 재시도함 - costmap 사전
+  # 충돌 체크를 안 하므로 느린 속도/짧은 거리로만 사용함
+  # (_direct_cmd_vel_creep_forward, 안전성 근거는 DETAILS.md §3 참고).
+  direct_creep_speed_mps: 0.05
+  direct_creep_distance_m: 0.2
+  direct_creep_timeout_sec: 15.0
+
   # [Stuck Nav Watchdog] nav2 기본 recovery BT는 스스로 포기하는 시점이 없어서
   # (RoundRobin으로 spin/wait/backup을 계속 재시도), 좁은 문지방 등에서 막히면
-  # number_of_recoveries만 계속 늘려가며 사실상 무한 대기할 수 있음이 실측
-  # 확인됨(2026-09-11, transit 구간에서 distance_remaining 0.93m 정체·
-  # recoveries 18회+, 200초+ 지속). _navigate_to_pose_blocking/
+  # number_of_recoveries만 계속 늘려가며 사실상 무한 대기할 수 있음
+  # (HISTORY.md §12). _navigate_to_pose_blocking/
   # _navigate_through_poses_blocking이 nav_stuck_cancel_sec 이상 진행이 없으면
-  # 직접 취소하고, 후진 후 1회 재시도, 그래도 막히면 세그먼트 실패로 처리함.
+  # 직접 취소하고, 후진 후 1회 재시도, 그래도 막히면(_navigate_through_poses_blocking만)
+  # 위 direct cmd_vel forward creep으로 한 번 더 시도한 뒤에야 세그먼트 실패로 처리함.
   nav_stuck_cancel_sec: 45.0
 
 # ==============================================================================
@@ -166,8 +195,23 @@ surface_profiling:
 
   # [Point Cloud Processing]
   voxel_size: 0.01      # (m) PCD 저장 시 다운샘플링 단위. 메모리 초과 방지용.
-  z_min: 0.000         # (m) -0.5cm, 필요에 따라 수정.
-  z_max: 0.035          # (m) 3.5cm, 필요에 따라 수정.
+  save_raw_pcd: false   # true면 다운샘플 이전 raw PCD를 combined_raw_*.pcd로 별도 저장함
+  # 아래 둘은 디스크 절약용 토글임. combined_*.pcd만 남겨두면 z 창/격자/분모를
+  # 바꿔도 재주행 없이 reprocess_pcd.py/analyze_coverage_comparison.py로 다시
+  # 계산할 수 있음(보존 정책은 DETAILS.md §3 참고).
+  save_combined_csv: false   # true면 통합 PCD를 combined_*.csv로도 내보냄(외부 툴 전달용)
+  save_waypoint_pcd: false   # true면 웨이포인트별 개별 PCD를 pointclouds/waypoints/에 저장함(지점 단위 디버깅용)
+  # save_raw_pcd는 알고리즘 비교 실험용임 - 셀당 다중 리턴 수/z-표준편차 계산에
+  # 필요하며, 평소에는 용량 때문에 꺼둠(EVAL.md 참고).
+  # 바닥면 점군은 z=0.000을 중심으로 대칭으로 퍼져 있어(피크 -0.024~+0.015)
+  # z 창도 대칭으로 잡아야 함 - 하단을 자르면 완전성과 평탄도가 함께 치우침
+  # (HISTORY.md §24). 이 두 값은 완전성 계산뿐 아니라 combined_filtered_*.pcd
+  # 생성과 평탄도 히트맵에도 그대로 쓰이므로 바닥 피크를 대칭으로 감싸야 함.
+  z_min: -0.025         # (m) -2.5cm. 바닥 피크 하단(-0.024)을 포함시킴.
+  z_max: 0.030          # (m) +3.0cm. 바닥 피크 상단보다 여유를 둬 볼록한 요철까지 담음.
+  # 상한을 올릴수록 벽/물체 하단의 배경 점이 벽 근처 셀에 섞일 수 있음(HISTORY.md §24/§28).
+  # z-이상치 삽입 실험(OPEN_QUESTIONS.md §1)에서는 주입할 결함 높이가 이 상한에
+  # 잘리지 않는지 확인할 것.
 
   # [Heatmap Visualization]
   grid_size: 0.01        # (m) 히트맵 격자 크기. 작을수록 선명하지만 계산량 증가.

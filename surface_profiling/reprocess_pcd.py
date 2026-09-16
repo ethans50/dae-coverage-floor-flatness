@@ -84,12 +84,20 @@ def main():
         "--map-yaml-dir", type=str, default=None,
         help="params.yaml의 map_yaml_dir를 이번 실행에서만 덮어씀"
     )
+    parser.add_argument(
+        "--eval-label", type=str, default=None,
+        help="EVAL.md 실험 라벨 - 주어지면 pcd/맵을 workspace_root 대신 eval_runs/<라벨>/ "
+             "아래 자기완결 폴더(run_generation_pipeline.py --snapshot-label로 만든)에서 찾음"
+    )
     args = parser.parse_args()
 
     workspace_root, profiling_cfg = load_config()
+    # --eval-label이 주어지면 analyze_coverage_comparison.py와 동일하게
+    # eval_runs/<라벨>/ 자기완결 폴더를 기준으로 삼음(EVAL.md 참고).
+    output_root = os.path.join(workspace_root, 'eval_runs', args.eval_label) if args.eval_label else workspace_root
 
-    pointcloud_dir = resolve_pointcloud_dir(workspace_root, profiling_cfg)
-    visualization_dir = resolve_visualization_dir(workspace_root, profiling_cfg)
+    pointcloud_dir = resolve_pointcloud_dir(output_root, profiling_cfg)
+    visualization_dir = resolve_visualization_dir(output_root, profiling_cfg)
 
     # 입력 파일 경로 해석: 절대/상대경로로 이미 존재하면 그대로, 아니면 pointcloud_dir 기준
     pcd_path = args.pcd_filename
@@ -114,7 +122,9 @@ def main():
     else:
         # [핵심] surface_profiler.py의 _resolve_directories()와 완전히 동일한
         # resolve_map_yaml_path()를 그대로 사용 -> 두 스크립트가 절대 어긋나지 않음.
-        map_yaml_path = resolve_map_yaml_path(workspace_root, profiling_cfg)
+        # --eval-label이 있으면 output_root(eval_runs/<라벨>/)의 자기완결 맵
+        # 복사본을 쓰고, 없으면 기존처럼 workspace_root를 그대로 씀.
+        map_yaml_path = resolve_map_yaml_path(output_root, profiling_cfg)
         if map_yaml_path is not None and not os.path.exists(map_yaml_path):
             print(f"[!] Warning: map_yaml_path가 설정되었으나 파일을 찾을 수 없습니다: {map_yaml_path}")
 

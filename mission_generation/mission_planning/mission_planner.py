@@ -1,23 +1,25 @@
 # mission_generation/mission_planning/mission_planner.py
 
-import json
 import numpy as np
 import cv2
 import os
 import math
 import time
 
-from mission_planning.algorithms import tsp, coverage, transit
-from mission_planning.utils import visualizer, geometry, sampler
-from mission_planning import translator
+from mission_planning.algorithms import tsp, coverage, transit, pendant_reorder
+from mission_planning.utils import visualizer, geometry, repass_preview
+from mission_planning import path_exporter
 
 class MissionPlanner:
     # 파라미터 업데이트
     def __init__(self, topomap_path, visualization_dir="./debug", robot_width=0.28, path_safety_margin=0.25, lidar_range=8.4, overlap=0.2, turn_weight=2.0, wall_weight=5.0, lidar_mount_height=0.338, lidar_vertical_fov_deg=15.0,
              blind_radius_m=None, boundary_repass_distance_m=1.5, enable_boundary_repass=True,
-             enable_pendant_reorder=True, enable_entry_hint_ordering=True, enable_path_simplification=True, **kwargs):
+             enable_pendant_reorder=True, enable_entry_hint_ordering=True, enable_path_simplification=True,
+             coverage_mode="full", enable_optimal_swath_angle=True, **kwargs):
         if not os.path.exists(topomap_path):
             raise FileNotFoundError(f"[!] Topomap file not found at: {topomap_path}")
+        if coverage_mode not in ("full", "centroid_only"):
+            raise ValueError(f"[!] Invalid coverage_mode: {coverage_mode!r} (expected 'full' or 'centroid_only')")
 
         data = np.load(topomap_path, allow_pickle=True)
 
@@ -42,12 +44,22 @@ class MissionPlanner:
         self.enable_boundary_repass = enable_boundary_repass
 
         # ablation 실험용 토글 3종 - 각 메커니즘의 기여도를 개별적으로 끄고
-        # 측정하기 위함(paper.md 결론, 2026-09-03). 기본값은 모두 True(현재
+        # 측정하기 위함(EVAL.md 참고). 기본값은 모두 True(현재
         # 파이프라인 동작과 동일) - False로 두면 해당 메커니즘 없이 생성했을
         # final_path.json을 얻을 수 있음.
         self.enable_pendant_reorder = enable_pendant_reorder
         self.enable_entry_hint_ordering = enable_entry_hint_ordering
         self.enable_path_simplification = enable_path_simplification
+
+        # EVAL.md 3-way 알고리즘 비교 실험용 토글임. coverage_mode="centroid_only"면
+        # 모든 노드에서 F2C 스와스 생성을 건너뛰어 swath_pairs가 빈 리스트가 되고,
+        # 기존에 이미 있던 "스와스 생성 실패 시 centroid로 폴백"하는 코드 경로
+        # (_compute_node_raw_points/Step3 인라인 로직)가 그대로 재사용되어 노드
+        # 중앙점 1점만 방문하는 경로가 만들어짐 - 새 알고리즘 코드 없이 기존
+        # 폴백을 재활용하는 구조임. enable_optimal_swath_angle=False면 wide 노드도
+        # generateBestSwaths 각도 자동탐색 없이 0도 고정 스와스를 씀(coverage.py 참고).
+        self.coverage_mode = coverage_mode
+        self.enable_optimal_swath_angle = enable_optimal_swath_angle
 
         self.turn_weight = float(turn_weight)
         self.wall_weight = float(wall_weight)
@@ -152,11 +164,15 @@ class MissionPlanner:
         bucket = self.nodes[node_idx]['bucket']
         safe_node_mask = self.nodes[node_idx]['safe_node_mask']
 
-        if bucket in ('narrow', 'ultra_narrow'):
+        if self.coverage_mode == 'centroid_only':
+            # 스와스 생성을 아예 건너뜀 - 아래 "swath_pairs가 비면 centroid로
+            # 폴백"하는 기존 로직이 그대로 노드 중앙점 방문 경로를 만들어줌
+            swath_pairs = []
+        elif bucket in ('narrow', 'ultra_narrow'):
             forced_angle = geometry.get_long_axis_angle_rad(safe_node_mask)
             swath_pairs = coverage.generate_raw_swaths(safe_node_mask, self.robot_params, decompose=True, split_angle_rad=forced_angle)
         else:
-            swath_pairs = coverage.generate_raw_swaths(safe_node_mask, self.robot_params)
+            swath_pairs = coverage.generate_raw_swaths(safe_node_mask, self.robot_params, enable_optimal_swath_angle=self.enable_optimal_swath_angle)
 
         raw_points = []
         if swath_pairs:
@@ -170,154 +186,20 @@ class MissionPlanner:
         return raw_points
 
     def _compute_repass_adjusted_exit(self, raw_points):
-        """coverage 노드 하나(raw_points)의 실제 물리적 exit 지점 - F2C
-        스와스 자체의 마지막 점(raw_points[-1])이 아니라, 실행 시
-        BoundaryRepassController.run_exit_repass가 되짚기를 마친 뒤 로봇이
-        실제로 서 있게 될 위치(retrace 지점)를 반환함.
-
-        boundary_repass.py의 _repass_distance_m/_offset_pose와 완전히
-        동일한 기하 규칙을 따름: 마지막 다리(raw_points[-2:])의 heading을
-        구하고, 왕복 거리는 설정값(boundary_repass_distance_m)과 그 다리
-        길이의 90% 중 작은 쪽으로 clamp한 뒤, 그만큼 되짚어 물러난 지점을
-        계산함. enable_boundary_repass가 꺼져 있거나, 다리가 없거나(단일
-        점 방), clamp된 거리가 0.3m 미만이면(run_exit_repass 자신도 이 경우
-        되짚기 없이 즉시 캡처를 끄므로) 원래 F2C 종료 지점을 그대로
-        반환함 - 그 경우 로봇은 실제로 거기 그대로 있기 때문임.
-
-        Step3의 current_pos(다음 노드로 가는 transit A*의 실제 시작점)와
-        _reorder_pendant_groups의 허브 anchor 양쪽에서 재사용함 - 로봇이
-        실제로 그 위치에서 다음 이동을 시작하므로, 오프라인 계획(및 그
-        시각화)도 거기서부터 transit을 그려야 실제 주행과 일치함."""
-        if not raw_points:
-            return None
-        if not self.enable_boundary_repass or len(raw_points) < 2:
-            return raw_points[-1]
-
-        a = np.array(raw_points[-2], dtype=float)
-        b = np.array(raw_points[-1], dtype=float)
-        vec = b - a
-        seg_len_px = float(np.hypot(vec[0], vec[1]))
-        if seg_len_px < 1e-6:
-            return raw_points[-1]
-
-        d_px = self.boundary_repass_distance_m / self.map_resolution
-        d = min(d_px, seg_len_px * 0.9)
-        if d * self.map_resolution < 0.3:
-            return raw_points[-1]
-
-        unit = vec / seg_len_px
-        retrace = b - unit * d
-        return (int(round(retrace[0])), int(round(retrace[1])))
+        """coverage 노드 하나의 실제 물리적 exit 지점(되짚기 후 로봇이 서 있게
+        될 retrace 지점)을 돌려줌 - 계산 규칙은 utils/repass_preview.py 참고.
+        Step3의 current_pos와 _reorder_pendant_groups의 허브 anchor가 공유함."""
+        return repass_preview.compute_adjusted_exit(
+            raw_points, self.enable_boundary_repass,
+            self.boundary_repass_distance_m, self.map_resolution)
 
     def _reorder_pendant_groups(self, tsp_sequence, detailed_sequence, node_waypoints):
-        """
-        Christofides 근사(tsp.py)는 F2C 스와스가 생성되기 전, 노드
-        중심점(centroid) 거리만으로 방문 순서를 정함. 허브형 토폴로지
-        (중앙 복도 하나에 여러 방이 매달린 구조, 예: Apt.dae의 node2 <->
-        {1,4,5,6})에서는 각 pendant 노드의 실제 연결 지점(waypoint)이
-        허브의 실제 coverage 종료 지점(entry_hint에 의해서만 정해짐 -
-        exit_hint는 고려하지 않음, order_swaths_by_entry 참고)에서 얼마나
-        가까운지를 이 근사가 전혀 반영하지 못함(발견 경위·실측 결과는
-        HISTORY.md §2 참고).
-
-        허브 h의 coverage가 확정된 직후(=h의 실제 물리적 exit 좌표를 알 수
-        있는 시점), h에 '직접' 연결된(다른 노드를 거치지 않는) pendant
-        노드들이 tsp_sequence 상에서 연속으로 나타나는 구간(=서로 직접
-        연결되어 있지 않아 매번 h를 되짚어 지나가야만 하는 구간)을 찾아,
-        그 구간만 h의 실제 exit 좌표에서부터 시작하는 nearest-neighbor
-        순서로 재배열함. Christofides가 정한 전역적인 큰 흐름(어느
-        허브/군집을 먼저·나중에 방문할지)은 건드리지 않고, 이미 정해진
-        허브 도착 이후의 로컬 pendant 방문 순서만 다듬는 국소적 후처리임.
-
-        pendant 사이의 이동 비용은 각자의 실제 coverage 스와스 형태까지
-        고려하지 않고, hub<->pendant 연결 지점(waypoint) 사이의 유클리드
-        거리로 근사함 - 매번 hub 복도를 되짚어 지나가야 하는 이 특정
-        상황에서는 '문이 서로 얼마나 가까운가'가 실제 이동거리를 잘
-        근사하기 때문임(각 pendant 자체의 coverage 왕복 비용은 방문
-        순서와 무관하게 고정되므로 비교 대상에서 제외해도 됨).
-
-        detailed_sequence 구조가 예상(hub와 pendant가 정확히 번갈아 나오는
-        패턴)과 다르면(예: pendant끼리 직접 연결되어 있어 Dijkstra가 hub를
-        경유하지 않은 경우) 안전하게 해당 구간의 재배열을 건너뜀 - 잘못된
-        가정으로 경로 데이터를 조용히 훼손하는 것보다 나음.
-        """
-        tsp_sequence = list(tsp_sequence)
-        detailed_sequence = list(detailed_sequence)
-
-        def _dist(a, b):
-            return float(np.hypot(a[0] - b[0], a[1] - b[1]))
-
-        # tsp_sequence[j]가 detailed_sequence의 어느 인덱스에서 '커버리지
-        # 방문'으로 등장하는지 Step3와 동일한 매칭 규칙으로 미리 기록해둠.
-        target_positions = {}
-        tsp_idx = 0
-        for idx, n in enumerate(detailed_sequence):
-            if tsp_idx < len(tsp_sequence) and n == tsp_sequence[tsp_idx]:
-                target_positions[tsp_idx] = idx
-                tsp_idx += 1
-
-        j = 0
-        while j < len(tsp_sequence):
-            hub = tsp_sequence[j]
-            run_start = j + 1
-            k = run_start
-            while k < len(tsp_sequence) and (hub, tsp_sequence[k]) in node_waypoints:
-                k += 1
-            run = tsp_sequence[run_start:k]
-
-            if len(run) >= 2:
-                hub_pos = target_positions.get(j)
-                if hub_pos is not None:
-                    expected_old = []
-                    for idx2, n in enumerate(run):
-                        expected_old.append(n)
-                        if idx2 != len(run) - 1:
-                            expected_old.append(hub)
-                    seg_start = hub_pos + 1
-                    seg_end = seg_start + len(expected_old)
-                    old_slice = detailed_sequence[seg_start:seg_end]
-
-                    if old_slice == expected_old:
-                        prev_node = detailed_sequence[hub_pos - 1] if hub_pos > 0 else None
-                        hub_entry_hint = node_waypoints.get((prev_node, hub)) if prev_node is not None else None
-                        hub_raw_points = self._compute_node_raw_points(hub, hub_entry_hint)
-                        # 허브 자신도 exit repass를 거치므로, pendant 순서를
-                        # 정하는 anchor는 F2C 종료 지점이 아니라 repass가
-                        # 끝난 뒤 로봇이 실제로 서 있을 위치여야 함
-                        # (_compute_repass_adjusted_exit 참고) - Step3의
-                        # current_pos 갱신과 동일한 기준.
-                        anchor = self._compute_repass_adjusted_exit(hub_raw_points) or \
-                            geometry.get_centroid(self.nodes[hub]['driveable_mask'])
-
-                        if anchor is not None:
-                            remaining = list(run)
-                            new_order = []
-                            pos = anchor
-                            while remaining:
-                                best = min(remaining, key=lambda n: _dist(pos, node_waypoints[(hub, n)]))
-                                new_order.append(best)
-                                pos = node_waypoints[(hub, best)]
-                                remaining.remove(best)
-
-                            if new_order != run:
-                                print(f"[*] Pendant reorder: hub Node {hub + 1}'s neighbors "
-                                      f"{[n + 1 for n in run]} -> {[n + 1 for n in new_order]} "
-                                      f"(nearest-neighbor from hub's actual coverage exit point).")
-                                tsp_sequence[run_start:k] = new_order
-                                new_slice = []
-                                for idx2, n in enumerate(new_order):
-                                    new_slice.append(n)
-                                    if idx2 != len(new_order) - 1:
-                                        new_slice.append(hub)
-                                detailed_sequence[seg_start:seg_end] = new_slice
-                    else:
-                        print(f"[WARN] Pendant reorder for hub Node {hub + 1}: detailed_sequence "
-                              f"구조가 예상과 달라(pendant끼리 직접 연결된 경우 등) 재배열을 건너뜁니다.")
-
-            j = k if len(run) >= 2 else run_start
-
-        return tsp_sequence, detailed_sequence
-
+        """허브에 매달린 pendant 노드들의 방문 순서만 국소적으로 다듬음 -
+        계산 규칙은 algorithms/pendant_reorder.py 참고. 허브의 exit 좌표가
+        필요해 raw point 계산과 repass 보정을 콜백으로 넘김."""
+        return pendant_reorder.reorder(
+            tsp_sequence, detailed_sequence, node_waypoints, self.nodes,
+            self._compute_node_raw_points, self._compute_repass_adjusted_exit)
     def execute_full_mission(self):
         """하위 알고리즘 모듈들을 오케스트레이션해서 전체 로봇 mission plan을 생성함."""
         print(f"\n{'-'*14} [Full Mission Planning Start] {'-'*14}")
@@ -482,12 +364,17 @@ class MissionPlanner:
                 bucket = self.nodes[curr_node]['bucket']
                 safe_node_mask = self.nodes[curr_node]['safe_node_mask']
 
-                if bucket in ('narrow', 'ultra_narrow'):
+                if self.coverage_mode == 'centroid_only':
+                    # _compute_node_raw_points와 동일한 원리 - 스와스 생성을
+                    # 건너뛰어 아래 centroid 폴백 경로를 그대로 재사용함
+                    forced_angle = None
+                    swath_pairs = []
+                elif bucket in ('narrow', 'ultra_narrow'):
                     forced_angle = geometry.get_long_axis_angle_rad(safe_node_mask)
                     swath_pairs = coverage.generate_raw_swaths(safe_node_mask, self.robot_params, decompose=True, split_angle_rad=forced_angle)
                 else:
                     forced_angle = None
-                    swath_pairs = coverage.generate_raw_swaths(safe_node_mask, self.robot_params)
+                    swath_pairs = coverage.generate_raw_swaths(safe_node_mask, self.robot_params, enable_optimal_swath_angle=self.enable_optimal_swath_angle)
 
                 if self.nodes[curr_node]['id'] in (1, 2):
                     node_id_dbg = self.nodes[curr_node]['id']
@@ -607,108 +494,12 @@ class MissionPlanner:
         return tsp_sequence
 
     def _build_boundary_repass_preview(self):
-        """미션 실행 시 BoundaryRepassController가 만들 왕복 경로를 계획
-        단계에서 근사해 시각화 전용으로 반환함. boundary_repass.py의 기하
-        규칙(_offset_pose/_repass_distance_m)을 px 단위로 그대로 재현함.
-        self.path_segments(=실제 final_path.json 원본)는 건드리지 않음.
-
-        heading 계산 시 주의: self.path_segments의 'coverage' 항목 하나는
-        F2C 스와스 전부(꺾이는 코너 포함)를 이어붙인 좌표 목록이라, 여러
-        스와스가 꺾여있는 노드는 path[0]->path[-1] 전체 직선(코너 무시한
-        거시적 방향)이 실제 로봇이 그 시작/끝 지점에서 나아가는 방향과 전혀
-        다를 수 있음(발견 경위는 HISTORY.md §2 참고). mission_executor.py의
-        실제 run_start_prepass/run_exit_repass는 heading 변화 기준으로
-        분할된 sub-segment(첫/마지막 직선 다리 하나)만 넘겨받으므로 이 문제가
-        없음 - 여기서도 동일하게 첫 다리(path[0]->path[1])/마지막 다리
-        (path[-2]->path[-1])만으로 heading과 길이(clamp 기준)를 계산해서
-        맞춤. 앵커 지점(p0/p_end) 자체는 그대로 path[0]/path[-1] 사용.
-        """
-        preview_segments = []
-        if not self.path_segments:
-            return preview_segments
-
-        d_m = self.boundary_repass_distance_m
-        d_px = d_m / self.map_resolution
-
-        def _unit_and_len(path):
-            p0 = np.array(path[0], dtype=float)
-            p1 = np.array(path[-1], dtype=float)
-            vec = p1 - p0
-            length = float(np.hypot(vec[0], vec[1]))
-            if length < 1e-6:
-                return None, 0.0
-            return vec / length, length
-
-        print("[*] Boundary repass preview:")
-
-        first_seg = self.path_segments[0]
-        if first_seg['type'] == 'coverage' and len(first_seg['path']) >= 2:
-            unit, seg_len_px = _unit_and_len(first_seg['path'][:2])  # 첫 다리만
-            if unit is not None:
-                d = min(d_px, seg_len_px * 0.9)
-                p0 = np.array(first_seg['path'][0], dtype=float)
-                runway = p0 + unit * d
-                # 화살표는 실제 로봇 이동 순서(runway -> p0)를 나타내야 함 -
-                # run_start_prepass는 로봇이 runway 지점에서 스폰되어 p0로
-                # 들어가는 편도 주행이므로, coverage 진행 방향(p0->runway 방향인
-                # unit)과는 반대 방향으로 그려야 맞음. exit repass 화살표(아래,
-                # p_end->retrace)와 동일한 "모션 시작점->끝점" 관례를 따름.
-                preview_segments.append({
-                    'type': 'repass_preview',
-                    'path': [tuple(runway.astype(int)), tuple(p0.astype(int))],
-                    'label': f'START HERE ({d * self.map_resolution:.2f}m)',
-                    'label_at': 0,  # runway 지점(실제 로봇을 놔야 하는 곳)에 라벨을 붙임 -
-                                    # p0는 이미 순번 "1"이 찍혀있어서 그쪽에 붙이면 안 보임.
-                })
-                print(f"    [start prepass] mission start (path_segments[0]) - "
-                      f"runway {d * self.map_resolution:.2f}m")
-            else:
-                print("    [start prepass] SKIPPED - start coverage segment has zero length.")
-        else:
-            print("    [start prepass] SKIPPED - path_segments[0] is not type='coverage'.")
-
-        n_coverage_exits = 0
-        n_previewed = 0
-        for idx, seg in enumerate(self.path_segments):
-            if seg['type'] != 'coverage':
-                continue
-            n_coverage_exits += 1
-            is_mission_end = (idx == len(self.path_segments) - 1)
-            tag = f"coverage exit #{n_coverage_exits} (path_segments[{idx}]" \
-                  f"{', mission end' if is_mission_end else ''})"
-
-            if len(seg['path']) < 2:
-                print(f"    [exit repass] {tag} SKIPPED - single-point coverage, no heading to retrace along.")
-                continue
-
-            # _compute_repass_adjusted_exit와 완전히 동일한 계산을 재사용함
-            # (Step3의 current_pos 갱신이 실제로 쓰는 바로 그 함수) - 이 함수와
-            # 별개로 공식을 중복 구현하면 enable_boundary_repass=False일 때도
-            # 그 사실을 모른 채 무조건 화살표를 그리는 불일치가 생기므로 통일함.
-            # self.path_segments 자체가 이미 이 지점에서 시작하므로, 여기서는
-            # "coverage 끝점 -> 그 실제 시작점" 구간만 시각적으로 이어주면 됨.
-            p_end = np.array(seg['path'][-1], dtype=float)
-            retrace_raw = self._compute_repass_adjusted_exit(seg['path'])
-            if retrace_raw is None or tuple(retrace_raw) == tuple(seg['path'][-1]):
-                print(f"    [exit repass] {tag} SKIPPED - no repass applied "
-                      f"(disabled, or clamped distance too short).")
-                continue
-
-            retrace = np.array(retrace_raw, dtype=float)
-            d_m = float(np.hypot(*(p_end - retrace))) * self.map_resolution
-            preview_segments.append({
-                'type': 'repass_preview',
-                'path': [tuple(p_end.astype(int)), tuple(retrace.astype(int))],
-                'label': f'exit repass #{n_coverage_exits} ({d_m:.2f}m)',
-                'label_at': 1,  # retrace 지점(되짚어 나가야 하는 곳)에 라벨
-            })
-            n_previewed += 1
-            print(f"    [exit repass] {tag} - retrace {d_m:.2f}m")
-
-        print(f"[*] Boundary repass preview summary: {n_previewed}/{n_coverage_exits} "
-              f"coverage exits got a repass preview (rest skipped as logged above).")
-
-        return preview_segments
+        """repass_preview.build_preview()에 현 설정값을 넘겨 시각화 전용
+        세그먼트 목록을 받아옴. self.path_segments(=final_path.json 원본)는
+        건드리지 않음."""
+        return repass_preview.build_preview(
+            self.path_segments, self.enable_boundary_repass,
+            self.boundary_repass_distance_m, self.map_resolution)
 
     def plan(self, save_debug=True, show_plot=False, output_dir=None):
         # output_dir 미지정 시, 현재 작업 디렉토리(cwd)에 의존하는 상대경로
@@ -750,127 +541,5 @@ class MissionPlanner:
                 global_mask=self.global_mask
             )
 
-        # 4. Translator를 통한 좌표 변환 및 메시지 포맷팅 (Pixel -> Meter)
-        # Y축 대칭 반전 역산을 위해 전역 마스크 이미지의 세로 픽셀 크기(Height)를 추출함.
-        map_height = self.global_mask.shape[0]
-
-        print("[*] Translating path segments to Metric coordinates...")
-
-        raw_nav2_path = translator.convert_segments_to_nav2(
-            path_segments=self.path_segments,
-            origin=self.origin,
-            resolution=self.map_resolution,
-            map_height=map_height
-        )
-
-        # sampling_step만큼의 거리마다 샘플링
-        sampled_nav2_path = sampler.interpolate_with_semantics(
-            raw_nav2_path
-        )
-        
-        raw_flat_path = []
-        for seg in raw_nav2_path:
-            for p in seg['poses']:
-                p_copy = json.loads(json.dumps(p))
-                p_copy['header'] = {
-                    'frame_id': 'map',
-                    'task_type': seg['type'],
-                    'record_pcd': seg.get('record_pcd', seg['type'] == 'coverage'),
-                }
-                x, y = p_copy['pose']['position']['x'], p_copy['pose']['position']['y']
-                
-                # 거리 기반 비교
-                if not raw_flat_path or math.hypot(raw_flat_path[-1]['pose']['position']['x'] - x,
-                                                raw_flat_path[-1]['pose']['position']['y'] - y) > 0.001:
-                    raw_flat_path.append(p_copy)
-
-        os.makedirs(output_dir, exist_ok=True)
-        raw_output_file = os.path.join(output_dir, "raw_path.json")
-        sampled_output_file = os.path.join(output_dir, "final_path.json")
-
-        with open(raw_output_file, 'w') as f:
-            json.dump(raw_flat_path, f, indent=4)
-            
-        with open(sampled_output_file, 'w') as f:
-            json.dump(sampled_nav2_path, f, indent=4)
-
-        # final_path.json 자체가 이 값들(특히 boundary_repass_distance_m/
-        # enable_boundary_repass, _compute_repass_adjusted_exit 참고)에
-        # 기하학적으로 의존하므로, 계획 시점과 실행 시점(mission_executor.py가
-        # params.yaml에서 직접 읽음)의 값이 어긋나면 계획된 transit 시작점과
-        # 실제 repass 후 로봇 위치가 조용히 달라짐 - 계획 시점에 실제로 쓴
-        # 값을 사이드카 파일로 남겨서 mission_executor.py가 시작 시 자기
-        # params.yaml 값과 자동 대조하게 함(다르면 다른 CRITICAL ERROR들과
-        # 동일하게 즉시 중단 - _load_final_path 참고, 도입 경위는 HISTORY.md
-        # §2 참고).
-        meta_output_file = os.path.join(output_dir, "final_path_meta.json")
-        plan_meta = {
-            'robot_width': self.robot_width,
-            'path_safety_margin': self.path_safety_margin,
-            'boundary_repass_distance_m': self.boundary_repass_distance_m,
-            'enable_boundary_repass': self.enable_boundary_repass,
-            'map_resolution': self.map_resolution,
-            'blind_radius_m': self.blind_radius_m,
-            # 아래 3개는 실행 시 참조/대조되지 않음(순수 계획 단계 좌표
-            # 생성에만 관여) - ablation 실험 시 이 final_path.json이 어떤
-            # 토글 조합으로 생성됐는지 추적하기 위한 기록용 메타데이터.
-            'enable_pendant_reorder': self.enable_pendant_reorder,
-            'enable_entry_hint_ordering': self.enable_entry_hint_ordering,
-            'enable_path_simplification': self.enable_path_simplification,
-        }
-        with open(meta_output_file, 'w') as f:
-            json.dump(plan_meta, f, indent=4)
-
-        print(f"[*] Mission Planner Successfully Completed.")
-        print(f"    -> Raw Keypoints Path saved to: {raw_output_file} ({len(raw_flat_path)} pts)")
-        print(f"    -> Sampled Path saved to: {sampled_output_file} ({len(sampled_nav2_path)} pts)")
-        print(f"    -> Plan-time parameter snapshot saved to: {meta_output_file}")
-
-        if save_debug:
-            print("[*] Drawing path points on debug images...")
-            
-            # 1. 픽셀 좌표 변환 함수
-            def get_pixel_points(pose_list_or_segments, is_raw=False):
-                pts = []
-                # 원본(raw)인 경우 중첩 리스트 구조, sampled된 경로인 경우 포인트들의 단일 리스트임.
-                poses = []
-                if is_raw:
-                    for seg in pose_list_or_segments:
-                        poses.extend(seg['poses'])
-                else:
-                    poses = pose_list_or_segments
-
-                for p in poses:
-                    mx = p['pose']['position']['x']
-                    my = p['pose']['position']['y']
-                    px = int((mx - self.origin[0]) / self.map_resolution)
-                    py = int(map_height - (my - self.origin[1]) / self.map_resolution)
-                    if 0 <= px < self.global_mask.shape[1] and 0 <= py < self.global_mask.shape[0]:
-                        pts.append((px, py))
-                return pts
-
-            # 좌표 추출
-            raw_pixel_points = get_pixel_points(raw_nav2_path, is_raw=True)
-            sampled_pixel_points = get_pixel_points(sampled_nav2_path, is_raw=False)
-
-            # 오버레이할 베이스 이미지 경로
-            base_img_path = os.path.join(self.visualization_dir, "full_mission_path.png")
-
-            # 2. 이미지 로드 및 오버레이
-            def create_overlay_image(output_path, points):
-                if os.path.exists(base_img_path):
-                    img = cv2.imread(base_img_path)
-                    if img is not None:
-                        img = visualizer.draw_waypoint_on_image(img, points)
-                        cv2.imwrite(output_path, img)
-                        print(f"[*] Overlay saved to: {output_path}")
-                    else:
-                        print(f"[!] Failed to load base image: {base_img_path}")
-                else:
-                    print(f"[!] Base image not found: {base_img_path}")
-
-            create_overlay_image(os.path.join(self.visualization_dir, "raw_waypoint.png"), raw_pixel_points)
-            create_overlay_image(os.path.join(self.visualization_dir, "sampled_waypoint.png"), sampled_pixel_points)
-            
-        # 샘플링된 웨이포인트 반환. 필요하다면 원본(raw) 포인트를 반환해도 됨.
-        return sampled_nav2_path
+        # 4. 미터 좌표 변환 -> 샘플링 -> json/시각화 저장(path_exporter.py)
+        return path_exporter.export(self, output_dir, save_debug=save_debug)

@@ -1,0 +1,16 @@
+# mission_generation(경로 생성) 역할 노트북 전용 pip 의존성 고정 버전.
+# 검증된 기준 기기(2026-09) 상태를 그대로 고정한 것 - 버전을 고정하지 않으면
+# 노드 방문 순서 등 경로 생성 결과가 기기마다 달라질 수 있음이 실측으로 확인됨.
+#
+# 설치:
+#   pip install -r requirements-mission_generation.txt
+#
+# fields2cover, OR-Tools C++ 공유 라이브러리는 pip 패키지가 아니라 별도
+# 소스 빌드/tar 설치 절차를 따를 것 - 패키지 실행.md 3번 항목 참고.
+# (PyPI의 `pip install fields2cover`로 깔리는 버전(2.1.0)은 이 저장소가
+# 검증에 실제 사용한 소스 빌드 버전과 다르므로 쓰지 말 것.)
+
+networkx==3.4.2
+opencv-python-headless==4.13.0.92
+numpy==2.2.6
+pycollada==0.6

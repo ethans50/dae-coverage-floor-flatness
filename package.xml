@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>DAE 기반 실내 환경 모델링과 커버리지 주행을 이용한 3D LiDAR 바닥 평탄도 자율 측정 시스템</description>
   <maintainer email="gon05158557@gmail.com">ChanggonSong</maintainer>
-  <license>Apache-2.0</license>
+  <license>Proprietary</license>
 
   <!-- 공용 ROS 2 메시지/통신 -->
   <exec_depend>rclpy</exec_depend>

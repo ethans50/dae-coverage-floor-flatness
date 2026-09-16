@@ -1,0 +1,50 @@
+<!--
+  transit(캡처 없음) 구간 전용 NavigateThroughPoses BT.
+  nav2 기본 navigate_through_poses_w_replanning_and_recovery.xml의 복사본이며,
+  아래 두 군데만 다름(HISTORY.md §23):
+
+  1) FollowPath의 controller_id를 "FollowPathTransit"(Regulated Pure Pursuit)로 바꿈.
+     기본값 "FollowPath"(DWB)는 경로 추종이 아니라 매 순간 점수 최고 궤적을 고르는
+     방식이라, 목표가 먼 쪽에 있으면 경로를 벗어나 지름길로 붙음(HISTORY.md §22).
+
+  2) RemovePassedGoals의 radius를 0.7 -> 0.3으로 낮춤. 웨이포인트 간격이 0.37m
+     수준이라, 0.7이면 아직 지나지 않은 중간 경유점까지 한꺼번에 삭제되어 좁은
+     통로에서 목표가 먼 한 점만 남음(HISTORY.md §22).
+
+  coverage 구간은 이 BT를 쓰지 않고 nav2 기본 BT(DWB)를 그대로 씀 - EVAL.md의
+  9개 조합 ablation 데이터가 전부 그 제어 특성으로 수집된 것이라 측정 구간의
+  거동을 바꾸지 않기 위함.
+-->
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+      <PipelineSequence name="NavigateWithReplanning">
+        <RateController hz="0.333">
+          <RecoveryNode number_of_retries="1" name="ComputePathThroughPoses">
+            <ReactiveSequence>
+              <RemovePassedGoals input_goals="{goals}" output_goals="{goals}" radius="0.3"/>
+              <ComputePathThroughPoses goals="{goals}" path="{path}" planner_id="GridBased"/>
+            </ReactiveSequence>
+            <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
+          </RecoveryNode>
+        </RateController>
+        <RecoveryNode number_of_retries="1" name="FollowPath">
+          <FollowPath path="{path}" controller_id="FollowPathTransit"/>
+          <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
+        </RecoveryNode>
+      </PipelineSequence>
+      <ReactiveFallback name="RecoveryFallback">
+        <GoalUpdated/>
+        <RoundRobin name="RecoveryActions">
+          <Sequence name="ClearingActions">
+            <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
+            <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
+          </Sequence>
+          <Spin spin_dist="1.57"/>
+          <Wait wait_duration="5"/>
+          <BackUp backup_dist="0.30" backup_speed="0.05"/>
+        </RoundRobin>
+      </ReactiveFallback>
+    </RecoveryNode>
+  </BehaviorTree>
+</root>

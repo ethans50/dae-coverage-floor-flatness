@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "DAE Coverage Floor Flatness: Autonomous Floor Flatness Measurement via Design-File-Driven Coverage Path Planning"
+abstract: >-
+  A ROS 2 pipeline that converts a building's 3D design file (.dae/BIM) into a
+  2D map, decomposes the interior into room-level nodes, plans an offline
+  coverage path with TSP, Fields2Cover and A*, drives it autonomously with
+  Nav2/AMCL, and produces a millimetre-scale floor flatness heatmap from a
+  mobile 3D LiDAR.
+type: software
+authors:
+  - family-names: Song
+    given-names: Changgon
+    email: gon05158557@gmail.com
+version: 0.1.0
+date-released: "2026-09-16"
+repository-code: "https://github.com/ChanggonSong/dae-coverage-floor-flatness"
+keywords:
+  - coverage path planning
+  - floor flatness
+  - construction quality inspection
+  - ROS 2
+  - Nav2
+  - 3D LiDAR
+  - mobile robot

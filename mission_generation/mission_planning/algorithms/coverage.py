@@ -30,7 +30,7 @@ def mask_to_f2c_cells(mask):
     cells.addGeometry(cell)
     return cells
 
-def generate_raw_swaths(mask, robot_params, decompose=False, split_angle_rad=None):
+def generate_raw_swaths(mask, robot_params, decompose=False, split_angle_rad=None, enable_optimal_swath_angle=True):
     """
     decompose=True면, mask 폴리곤을 문지방 경계마다 볼록 조각으로 분할
     (Boustrophedon Decomposition)한 뒤, 가장 큰 조각(본체)만 골라 로봇의
@@ -45,6 +45,12 @@ def generate_raw_swaths(mask, robot_params, decompose=False, split_angle_rad=Non
     op_width에 이 값을 그대로 쓰면 narrow/ultra_narrow 노드에서 통로 폭보다
     커져 F2C가 스와스를 못 만드는 문제가 있었음(HISTORY.md §2 참고) -
     narrow/ultra_narrow는 로봇 실제 물리 폭을 대신 씀.
+
+    enable_optimal_swath_angle=False면 wide 노드(decompose=False)에서도
+    generateBestSwaths의 각도 자동탐색을 쓰지 않고 0도(가로) 고정 각도로
+    스와스를 생성함 - EVAL.md 알고리즘 2(zigzag ablation 극단판) 실험용
+    토글임. narrow/ultra_narrow(decompose=True) 경로는 이미 split_angle_rad로
+    각도가 강제되므로 이 토글의 영향을 받지 않음.
     """
     f2c_cells = mask_to_f2c_cells(mask)
     if f2c_cells is None:
@@ -78,10 +84,13 @@ def generate_raw_swaths(mask, robot_params, decompose=False, split_angle_rad=Non
 
     if split_angle_rad is not None and decompose:
         raw_swaths_by_cells = swath_gen.generateSwaths(split_angle_rad, robot.getWidth(), target_cells)
-    else:
+    elif enable_optimal_swath_angle:
         swath_gen.setStepAngle(math.pi / 36.0)
         obj = f2c.OBJ_SwathLength()
         raw_swaths_by_cells = swath_gen.generateBestSwaths(obj, robot.getWidth(), target_cells)
+    else:
+        # 각도 자동탐색 없이 0도(가로) 고정 - 표준 lawnmower 패턴을 흉내내는 용도임
+        raw_swaths_by_cells = swath_gen.generateSwaths(0.0, robot.getWidth(), target_cells)
 
     swath_pairs = []
     n_cells = target_cells.size()

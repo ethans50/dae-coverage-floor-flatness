@@ -1,6 +1,7 @@
 # mission_generation/run_generation_pipeline.py
 
 import os
+import shutil
 import yaml
 import json
 import traceback
@@ -11,7 +12,70 @@ from ament_index_python.packages import get_package_share_directory
 from mission_generation.environment_modeling.environment_modeler import EnvironmentModeler
 from mission_generation.mission_planning.mission_planner import MissionPlanner
 
-def run_generation_pipeline():
+
+def _snapshot_planning_outputs(label, workspace_root, grid_dir, map_yaml_path, topology_dir, topology_file, metric_dir, final_path_file, env_vis_dir=None, planner_vis_dir=None):
+    """EVAL.md 알고리즘 비교 실험용 - 맵/토폴로지/최종 경로/시각화 디버그
+    이미지를 <workspace_root>/eval_runs/<label>/ 아래에 복사해둠(원본은
+    그대로 flat 경로에 남겨서 기존 "재사용?" 프롬프트가 계속 정상 동작하게
+    함).
+
+    map_from_dae.yaml/.pgm, final_topological_map.npz, final_path.json,
+    final_path_meta.json은 항상 같은 고정 경로에 저장되는 파일이라,
+    이 함수 없이 다음 알고리즘을 이어서 생성하면 이전 결과가 흔적도 없이
+    덮어써짐(EVAL.md §6/§7의 데이터 정합성 문제 참고) - 그래서 라벨을 준
+    경우에만 복사본을 별도로 남김. 시각화 디렉토리(env_vis_dir/
+    planner_vis_dir)도 같은 이유로 매 생성마다 덮어써져서 함께 스냅샷함
+    - 이 둘은 단일 파일이 아니라 디렉토리 통째로 복사함."""
+    eval_root = os.path.join(workspace_root, 'eval_runs', label)
+
+    # 1. 맵(yaml + 그 안에서 참조하는 이미지 파일)
+    dst_grid_dir = os.path.join(eval_root, os.path.relpath(grid_dir, workspace_root))
+    os.makedirs(dst_grid_dir, exist_ok=True)
+    if os.path.exists(map_yaml_path):
+        shutil.copy2(map_yaml_path, dst_grid_dir)
+        with open(map_yaml_path, 'r') as f:
+            map_meta = yaml.safe_load(f)
+        image_name = map_meta.get('image')
+        if image_name:
+            image_path = image_name if os.path.isabs(image_name) else os.path.join(os.path.dirname(map_yaml_path), image_name)
+            if os.path.exists(image_path):
+                shutil.copy2(image_path, dst_grid_dir)
+    else:
+        print(f"[!] Warning: snapshot 대상 맵 파일이 없어 건너뜀: {map_yaml_path}")
+
+    # 2. 공간 분할 토폴로지
+    dst_topology_dir = os.path.join(eval_root, os.path.relpath(topology_dir, workspace_root))
+    os.makedirs(dst_topology_dir, exist_ok=True)
+    if os.path.exists(topology_file):
+        shutil.copy2(topology_file, dst_topology_dir)
+    else:
+        print(f"[!] Warning: snapshot 대상 토폴로지 파일이 없어 건너뜀: {topology_file}")
+
+    # 3. 최종 경로 + 계획 시점 파라미터 사이드카
+    dst_metric_dir = os.path.join(eval_root, os.path.relpath(metric_dir, workspace_root))
+    os.makedirs(dst_metric_dir, exist_ok=True)
+    if os.path.exists(final_path_file):
+        shutil.copy2(final_path_file, dst_metric_dir)
+    else:
+        print(f"[!] Warning: snapshot 대상 final_path.json이 없어 건너뜀: {final_path_file}")
+    meta_file = os.path.join(metric_dir, "final_path_meta.json")
+    if os.path.exists(meta_file):
+        shutil.copy2(meta_file, dst_metric_dir)
+
+    # 4. 시각화 디버그 이미지(환경 모델링/미션 플래닝) - 디렉토리 통째로 복사
+    for vis_dir in (env_vis_dir, planner_vis_dir):
+        if not vis_dir:
+            continue
+        if os.path.isdir(vis_dir):
+            dst_vis_dir = os.path.join(eval_root, os.path.relpath(vis_dir, workspace_root))
+            shutil.copytree(vis_dir, dst_vis_dir, dirs_exist_ok=True)
+        else:
+            print(f"[!] Warning: snapshot 대상 시각화 폴더가 없어 건너뜀: {vis_dir}")
+
+    print(f"[+] Snapshot saved to: {eval_root}")
+
+
+def run_generation_pipeline(snapshot_label=None):
     print("\n=======================================================")
     print("[*] Mission Generator (Workstation)")
     print("    : Environment Modeling and Mission Planning")
@@ -62,6 +126,13 @@ def run_generation_pipeline():
     boundary_repass_distance_m = mission_exec_cfg.get('boundary_repass_distance_m', 1.5)
     enable_boundary_repass = mission_exec_cfg.get('enable_boundary_repass', True)
 
+    # 시각화 디렉토리 경로 - regenerate 여부와 무관하게 스냅샷 시점에 항상
+    # 필요하므로 여기서 미리 계산해둠(mission_cfg.pop은 아래 regenerate
+    # 분기에서 MissionPlanner 생성자 인자로도 재사용하므로 그대로 유지).
+    env_vis_path = os.path.join(workspace_root, env_cfg.get('visualization_dir', 'visualization/mission_generation/environment_modeling'))
+    planner_vis_rel = mission_cfg.pop('visualization_dir', 'visualization/mission_generation/mission_planning')
+    planner_vis_path = os.path.join(workspace_root, planner_vis_rel)
+
     # 2. Map Processing
     need_process = False
 
@@ -100,10 +171,6 @@ def run_generation_pipeline():
     if regenerate:
         print("[*] Launching MissionPlanner Engine...")
         try:
-            # plan() 메서드용 인자와 시각화 경로 분리
-            planner_vis_rel = mission_cfg.pop('visualization_dir', 'visualization/mission_generation/mission_planning')
-            planner_vis_path = os.path.join(workspace_root, planner_vis_rel)
-            
             robot_width = env_cfg.get('robot_width', 0.28)
             path_safety_margin = mission_cfg.pop('path_safety_margin', 0.20)
             lidar_mount_height = mission_cfg.pop('lidar_mount_height', 0.338)
@@ -142,5 +209,21 @@ def run_generation_pipeline():
     else:
         print("[*] Safe Mode: Reusing existing final_path.json registry. Skip optimization.")
 
+    if snapshot_label:
+        _snapshot_planning_outputs(
+            snapshot_label, workspace_root, grid_dir, yaml_path,
+            topology_dir, map_file, metric_dir, cache_file,
+            env_vis_dir=env_vis_path, planner_vis_dir=planner_vis_path,
+        )
+
 if __name__ == "__main__":
-    run_generation_pipeline()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Mission Generator (Workstation) - Environment Modeling and Mission Planning")
+    parser.add_argument(
+        "--snapshot-label", type=str, default=None,
+        help="EVAL.md 알고리즘 비교 실험용 - 주어지면 이번에 쓰인 맵/토폴로지/final_path를 "
+             "<workspace_root>/eval_runs/<라벨>/에 복사해둠. 안 주면(기본값) 기존 동작과 동일함."
+    )
+    args = parser.parse_args()
+    run_generation_pipeline(snapshot_label=args.snapshot_label)

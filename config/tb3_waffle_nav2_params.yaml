@@ -113,7 +113,10 @@ controller_server:  # TurtleBot3 Waffle의 실제 모터 스펙상 최대 선속
     failure_tolerance: 1.2
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["goal_checker"]
-    controller_plugins: ["FollowPath"]
+    # FollowPath(DWB)는 coverage 구간 전용으로 유지함 - EVAL.md의 9개 조합 ablation 데이터가
+    # 전부 이 제어 특성으로 수집된 것이라 측정 구간의 거동을 바꾸지 않기 위함.
+    # FollowPathTransit(RPP)은 캡처를 하지 않는 transit 구간 전용임(HISTORY.md §23).
+    controller_plugins: ["FollowPath", "FollowPathTransit"]
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.1
@@ -131,11 +134,11 @@ controller_server:  # TurtleBot3 Waffle의 실제 모터 스펙상 최대 선속
       debug_trajectory_details: true
       min_vel_x: 0.0      
       min_vel_y: 0.0
-      max_vel_x: 0.16      # 전진 최대 속도 (m/s)
+      max_vel_x: 0.16      # 전진 최대 속도 (m/s) - coverage 구간 기본값. transit 구간에서는 mission_executor.py의 _set_speed_limit()이 set_parameters로 0.26(모터 스펙 한계)까지 실행 중에 올림(HISTORY.md §21)
       max_vel_y: 0.0
       max_vel_theta: 0.3  # 회전 최대 속도 (rad/s)
       min_speed_xy: 0.0
-      max_speed_xy: 0.16   # 평면상 최대 속도 (max_vel_x와 사실상 동일 역할)
+      max_speed_xy: 0.16   # 평면상 최대 속도 (max_vel_x와 사실상 동일 역할) - 위와 동일하게 transit에서 실행 중 상향됨
       min_speed_theta: 0.0
       # Add high threshold velocity for turtlebot 3 issue.
       # https://github.com/ROBOTIS-GIT/turtlebot3_simulations/issues/75
@@ -157,7 +160,7 @@ controller_server:  # TurtleBot3 Waffle의 실제 모터 스펙상 최대 선속
       theta_stopped_velocity: 0.008
       short_circuit_trajectory_evaluation: true # 무수히 많은 가상 궤적을 평가하던 중, '만점'에 가까운 최고 점수의 궤적을 찾으면 나머지 궤적 평가는 중단하고 즉시 실행.
       stateful: true
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      critics: ["Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"] # RotateToGoal 제거함: yaw_goal_tolerance=3.14(방향 완전 허용)와 모순되어, 목표 근처에서 불필요하게 회전을 우선시하며 속도를 죽여 마지막 수 cm 접근이 오래 걸리는 원인이었음(HISTORY.md §3 참고).
       BaseObstacle.scale: 0.1 # 장애물 회피 중요도. 높이면 좁은 복도에서 주행을 거부하거나 장애물을 멀리 빙 돌아서 감. 낮추면 장애물에 스치듯 아슬아슬하게 주행.
       PathAlign.scale: 8.0 # 로봇의 머리(방향)가 글로벌 경로(Path) 및 최종 목표(Goal) 방향과 얼마나 일치하는지.높이면 자동차처럼 경로를 따라 부드럽게 앞을 보며 주행함.
       PathAlign.forward_point_distance: 0.1
@@ -168,6 +171,38 @@ controller_server:  # TurtleBot3 Waffle의 실제 모터 스펙상 최대 선속
       RotateToGoal.scale: 30.0
       RotateToGoal.slowing_factor: 5.0
       RotateToGoal.lookahead_time: -1.0
+
+    # transit(캡처 없음) 전용 컨트롤러. DWB가 "경로 추종"이 아니라 "매 순간 점수 최고 궤적 선택"
+    # 방식이라 목표가 먼 쪽에 있으면 경로를 벗어나 지름길로 붙는 것이 0.94m 출입구 정체의
+    # 직접 원인이었음(HISTORY.md §22). RPP는 경로 위의 lookahead 점을 따라가므로 구조적으로
+    # 코너를 질러가지 않고, 곡률/장애물 근접도에 따라 속도를 스스로 조절함(HISTORY.md §23).
+    FollowPathTransit:
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      desired_linear_vel: 0.26   # transit 목표 속도. TB3 Waffle 모터 스펙 한계이자 velocity_smoother의 max_velocity와 동일
+      min_approach_linear_velocity: 0.05  # 목표 근처에서 완전히 멈추지 않도록 하는 하한
+      approach_velocity_scaling_dist: 0.6 # 목표 이 거리 안에서 감속 시작
+      use_velocity_scaled_lookahead_dist: true # 속도에 비례해 lookahead를 늘림(빠를수록 멀리 봄)
+      lookahead_time: 1.5        # 속도 비례 lookahead 계산용(0.26 * 1.5 ≈ 0.39m)
+      lookahead_dist: 0.4        # use_velocity_scaled_lookahead_dist=false일 때의 고정값
+      min_lookahead_dist: 0.2
+      max_lookahead_dist: 0.6
+      use_interpolation: true    # NavFn의 8방향 격자 경로를 보간해 부드럽게 따라감
+      max_robot_pose_search_dist: 10.0
+      transform_tolerance: 0.2
+      use_collision_detection: true
+      max_allowed_time_to_collision_up_to_carrot: 1.0
+      use_regulated_linear_velocity_scaling: true      # 곡률이 클수록 감속(코너에서 자동으로 느려짐)
+      regulated_linear_scaling_min_radius: 0.9         # 이보다 회전반경이 작아지면 감속 적용
+      regulated_linear_scaling_min_speed: 0.1          # 곡률 감속의 하한
+      use_cost_regulated_linear_velocity_scaling: true # 벽에 가까울수록 감속(문지방 통과 시 자동 서행)
+      cost_scaling_dist: 0.25            # local_costmap의 inflation_radius와 일치시켜야 함
+      cost_scaling_gain: 1.0
+      inflation_cost_scaling_factor: 15.0 # local_costmap의 inflation_layer.cost_scaling_factor와 일치시켜야 함
+      use_rotate_to_heading: true        # 각도차가 큰 코너에서만 제자리 회전, 나머지는 흐르듯 통과
+      rotate_to_heading_min_angle: 0.785 # (rad, 45도) 이 값이 주 튜닝 지점임 - 낮추면 정지가 늘고 안전, 높이면 부드럽지만 코너를 넓게 돎
+      rotate_to_heading_angular_vel: 0.5
+      max_angular_accel: 1.5
+      allow_reversing: false   # use_rotate_to_heading과 동시에 true로 둘 수 없음(RPP 제약). 후진은 BackUp 복구 행동이 담당함
     enable_stamped_cmd_vel: false
 
 local_costmap:
@@ -181,7 +216,7 @@ local_costmap:
       width: 8
       height: 8
       resolution: 0.05
-      robot_radius: 0.15
+      footprint: "[[0.08, -0.18], [0.08, 0.18], [-0.21, 0.18], [-0.21, -0.18]]" # 실제 URDF 충돌 형상 기준 사각 footprint임(원형 robot_radius 대신, HISTORY.md §21) - base_link 충돌 박스 0.28x0.28이 x=-0.064만큼 뒤로 치우쳐 있고 바퀴가 y=±0.177까지 튀어나와 원형 근사로는 뒷모서리가 과소평가됨. base_footprint 기준 앞 0.08/뒤 -0.21/좌우 ±0.18(안전 여유 포함).
       plugins: ["obstacle_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
@@ -216,7 +251,7 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_footprint
       transform_tolerance: 0.5
-      robot_radius: 0.15
+      footprint: "[[0.08, -0.18], [0.08, 0.18], [-0.21, 0.18], [-0.21, -0.18]]" # local_costmap과 동일한 이유로 교체함(위 주석 참고)
       resolution: 0.05
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]

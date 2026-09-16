@@ -17,6 +17,8 @@ setup(
         # Config files(params.yaml 등) 관리
         # 참고로 Input/Output files(맵, 경로 파일 등)는 사용자 홈 디렉토리의 외부 저장소(~/dae_floor_maps)에서 관리하므로 패키지에는 포함하지 않음
         (os.path.join('share', package_name, 'config'), glob.glob('config/*.yaml')),
+        # transit 구간 전용 nav2 Behavior Tree XML (HISTORY.md §23)
+        (os.path.join('share', package_name, 'behavior_trees'), glob.glob('behavior_trees/*.xml')),
         # rviz files
         (os.path.join('share', package_name, 'rviz'), glob.glob('rviz/*.rviz')),
         # urdf files
@@ -29,7 +31,7 @@ setup(
     maintainer='ChanggonSong',
     maintainer_email='gon05158557@gmail.com',
     description='DAE 기반 실내 환경 모델링과 커버리지 주행을 이용한 3D LiDAR 바닥 평탄도 자율 측정 시스템',
-    license='Apache-2.0',
+    license='Proprietary',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
