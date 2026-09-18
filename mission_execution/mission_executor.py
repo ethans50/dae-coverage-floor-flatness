@@ -145,6 +145,7 @@ class MissionExecutor(Nav2DriveMixin, LocalizationMixin, RunContextMixin, Node):
         # AMCL 초기화 검증 관련 상태
         self.verified_amcl_x = None
         self.verified_amcl_y = None
+        self.verified_amcl_yaw = None
         self.initial_pose = None
         self.sub_verify = None
 

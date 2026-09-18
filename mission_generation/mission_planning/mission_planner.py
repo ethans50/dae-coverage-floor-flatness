@@ -530,7 +530,8 @@ class MissionPlanner:
                 path_segments=viz_path_segments,
                 global_mask=self.global_mask,
                 output_dir=self.visualization_dir,
-                filename="full_mission_path.png"
+                filename="full_mission_path.png",
+                map_resolution=self.map_resolution
             ) # full_mission_path.png 저장
 
         if show_plot:
@@ -538,7 +539,8 @@ class MissionPlanner:
             visualizer.plot_mission_state(
                 nodes=self.nodes,
                 path_segments=viz_path_segments,
-                global_mask=self.global_mask
+                global_mask=self.global_mask,
+                map_resolution=self.map_resolution
             )
 
         # 4. 미터 좌표 변환 -> 샘플링 -> json/시각화 저장(path_exporter.py)

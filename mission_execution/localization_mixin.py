@@ -30,6 +30,7 @@ class LocalizationMixin:
     def _target_verification_callback(self, msg):
         self.verified_amcl_x = msg.pose.pose.position.x
         self.verified_amcl_y = msg.pose.pose.position.y
+        self.verified_amcl_yaw = self._quaternion_to_yaw(msg.pose.pose.orientation)
 
     def _initialize_localization(self):
         """
@@ -68,6 +69,14 @@ class LocalizationMixin:
                 dy = self.verified_amcl_y - self.initial_pose.pose.position.y
                 error_dist = (dx ** 2 + dy ** 2) ** 0.5
 
+                target_yaw = self._quaternion_to_yaw(self.initial_pose.pose.orientation)
+                yaw_error = math.atan2(
+                    math.sin(self.verified_amcl_yaw - target_yaw),
+                    math.cos(self.verified_amcl_yaw - target_yaw)
+                )
+                yaw_error_deg = abs(math.degrees(yaw_error))
+                max_yaw_error_deg = self.mission_exec_cfg.get('initial_pose_max_yaw_error_deg', 30.0)
+
                 if error_dist > 0.5:
                     print(f"\n[!!! CRITICAL INITIALIZATION BLOCKED !!!] AMCL initialized in the WRONG ROOM!")
                     print(f"[-] Target: ({self.initial_pose.pose.position.x:.2f}, {self.initial_pose.pose.position.y:.2f})")
@@ -80,8 +89,26 @@ class LocalizationMixin:
                     self.navigator.destroy_node()
                     rclpy.shutdown()
                     sys.exit(1)
+                elif yaw_error_deg > max_yaw_error_deg:
+                    # 위치는 맞아도 heading이 크게 어긋나면 map->odom TF 자체가 회전된 채로
+                    # 굳어져서, 이후 주행 전체가 일관되게 삐뚤어져 보임(위치 오차 체크만으로는
+                    # 못 잡음) - 물리적 배치 heading이 출력된 값과 실제로 다를 때 재현됨.
+                    print(f"\n[!!! CRITICAL INITIALIZATION BLOCKED !!!] AMCL position matched but "
+                          f"HEADING is off by {yaw_error_deg:.1f}° (max allowed: {max_yaw_error_deg:.1f}°)!")
+                    print(f"[-] Target heading: {math.degrees(target_yaw):.1f}°, "
+                          f"AMCL converged heading: {math.degrees(self.verified_amcl_yaw):.1f}°")
+                    print(f"[-] Check that the robot was physically placed facing the printed runway heading.")
+                    self.navigator.cancelTask()
+                    self._notify_surface_profiling_stop(success=False, message="AMCL initialized with wrong heading.")
+                    self.destroy_subscription(self.sub_verify)
+                    self.spin_executor.remove_node(self)
+                    self.destroy_node()
+                    self.navigator.destroy_node()
+                    rclpy.shutdown()
+                    sys.exit(1)
                 else:
-                    print(f"\n[+] AMCL Successfully aligned within safe zone (Error: {error_dist:.3f}m).")
+                    print(f"\n[+] AMCL Successfully aligned within safe zone "
+                          f"(Error: {error_dist:.3f}m, Yaw error: {yaw_error_deg:.1f}°).")
                     is_localization_safe = True
                     break
             time.sleep(0.05)

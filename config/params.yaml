@@ -103,6 +103,8 @@ mission_execution:
   spin_time_allowance_sec: 15.0
   tf_lookup_retry_sec: 1.0       # map->base_link TF 조회 실패 시 재시도할 최대 시간(초). 버퍼/리스너 생성 직후처럼 TF 이력이 아직 얕을 때의 일시적 ExtrapolationException을 흡수함.
 
+  initial_pose_max_yaw_error_deg: 30.0  # AMCL 초기화 검증 시 위치는 맞아도 heading이 이보다 벌어지면 실패 처리. 실제 로봇을 출력된 runway heading과 다르게 놓으면 map->odom TF가 회전된 채 굳어 주행 전체가 삐뚤어짐(위치 오차 체크만으로는 못 잡히던 결함).
+
   direction_change_threshold_deg: 30.0 # 좁은 구역 측정 문제를 해결하기 위해 coverage/transit 무시함. 전체 경로를 대상으로, 30도 이상 방향이 바뀌는 지점으로 분할.
 
   # [Boundary Repass] 모든 coverage exit 지점(중간 노드 exit + 미션의 진짜
