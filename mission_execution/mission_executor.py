@@ -49,8 +49,7 @@ class MissionExecutor(Nav2DriveMixin, LocalizationMixin, RunContextMixin, Node):
     시작 신호 -> 구간 끝점까지 여러 점을 한 번에 통과하는 직선
     주행(NavigateThroughPoses/goThroughPoses)하며 계속 캡처 -> 도착 시 정지.
     coverage뿐 아니라 transit 구간도 연속으로 측정해야 라이다 blind zone이
-    충분히 메꿔지므로 두 종류를 다르게 처리하지 않음(자세한 배경은
-    HISTORY.md §3 참고).
+    충분히 메꿔지므로 두 종류를 다르게 처리하지 않음.
 
     캡처 종료는 record_pcd=True 구간(coverage)이 끝나는 시점, 즉 매
     "coverage exit" 경계마다 boundary_repass.BoundaryRepassController.
@@ -61,7 +60,7 @@ class MissionExecutor(Nav2DriveMixin, LocalizationMixin, RunContextMixin, Node):
     인위적으로 만듦. 되짚기가 끝나면 로봇은 원래 coverage 종료 지점보다
     조금 안쪽에 있게 되지만, 그 다음 sub-segment(transit)의 정상 주행이
     로봇의 현재 위치에서부터 알아서 경로를 짜므로 별도 복귀 동작은 필요
-    없음. execute_mission() 참고, 도입 경위는 HISTORY.md §1 참고.
+    없음. execute_mission() 참고.
     """
 
     def __init__(self):
@@ -282,8 +281,8 @@ class MissionExecutor(Nav2DriveMixin, LocalizationMixin, RunContextMixin, Node):
 
         방향전환 기반 통합 상태기계:
         coverage(F2C 스와스)와 transit(A* 커넥터) 모두 바닥을 연속으로 측정해야
-        blind zone(라이다 최소 측정거리 사각지대)이 충분히 메꿔짐(배경은
-        HISTORY.md §1/§3 참고). 전체 final_path를 "방향(heading)이 바뀌는
+        blind zone(라이다 최소 측정거리 사각지대)이 충분히 메꿔짐.
+        전체 final_path를 "방향(heading)이 바뀌는
         지점"만 기준으로 재분할해서, 모든 직선 구간에서 동일한 패턴을
         반복함:
 
@@ -317,8 +316,7 @@ class MissionExecutor(Nav2DriveMixin, LocalizationMixin, RunContextMixin, Node):
         같은 sub-segment 첫 점은 매번 건너뜀(루프 앞머리 참고) - 단, 이
         스킵은 record_pcd=False(transit) sub-segment로만 한정함(coverage
         sub-segment에 적용하면 코너 없는 2점짜리 스와스가 1점으로 줄어
-        캡처가 통째로 빠지는 회귀가 생김). 이 스킵 로직이 왜 필요한지, 왜
-        transit으로만 한정하는지의 배경은 HISTORY.md §1 참고.
+        캡처가 통째로 빠지는 회귀가 생김).
 
         각 구간은 별도 goal로 순차 전송되므로, 미션 전체의 성공/실패는
         self.mission_succeeded 플래그로 별도 추적함(navigator.getResult()는
@@ -389,7 +387,7 @@ class MissionExecutor(Nav2DriveMixin, LocalizationMixin, RunContextMixin, Node):
                 # no-op이고, repass로 뒤로 물러난 경우엔 후진 불가(min_vel_x=0.0)
                 # 때문에 goThroughPoses가 즉시 FAILED가 됨.
                 # transit(record_pcd=False)에만 적용함 - coverage에도 적용하면
-                # 2점짜리 스와스가 1점으로 줄어 캡처가 통째로 빠짐(HISTORY.md §1).
+                # 2점짜리 스와스가 1점으로 줄어 캡처가 통째로 빠짐.
                 prev_last_pose = goal_poses[sub_segments[seg_idx - 1][1] - 1]
                 if (abs(seg_poses[0].pose.position.x - prev_last_pose.pose.position.x) < 1e-3
                         and abs(seg_poses[0].pose.position.y - prev_last_pose.pose.position.y) < 1e-3):
@@ -429,7 +427,7 @@ class MissionExecutor(Nav2DriveMixin, LocalizationMixin, RunContextMixin, Node):
                 self._boundary_repass.run_exit_repass(seg_poses)
 
         if self._capture_active:
-            # 루프가 break로 중단됐다면(세그먼트 실패), 로봇의 실제 위치가 계획과
+            # 루프가 break로 중단됐다면(세그먼트 실패), 로봇의 실제 위치가 planning과
             # 다를 수 있으므로 추가 주행 없이 즉시 캡처만 종료함. 정상 종료라면
             # 위 루프에서 마지막 coverage exit이 이미 repass로 캡처를 껐을 것이므로
             # 이 분기에 도달하지 않음.
@@ -468,7 +466,7 @@ class MissionExecutor(Nav2DriveMixin, LocalizationMixin, RunContextMixin, Node):
         잘려서 transit(record_pcd=False)과 coverage(record_pcd=True)가 한
         sub-segment로 합쳐지고, execute_mission()이 병합된 그룹의 record_pcd를
         맨 앞 점 하나로만 판단하므로 coverage 구간 전체의 캡처가 조용히
-        통째로 사라짐(원인 확정 경위는 HISTORY.md §1 참고).
+        통째로 사라짐.
         """
         n = len(goal_poses)
         if n <= 1:
@@ -535,8 +533,8 @@ class MissionExecutor(Nav2DriveMixin, LocalizationMixin, RunContextMixin, Node):
         mode = 'coverage' if seg_type == 'coverage' else 'transit'
         self.controller_switch.set_angular_dist_threshold(mode)
         self.controller_switch.set_speed_limit(mode)
-        # transit은 RPP(FollowPathTransit)를 쓰는 전용 BT로, coverage는 nav2 기본 BT(DWB)로 주행함
-        # (HISTORY.md §23). 빈 문자열이면 nav2가 기본 BT를 씀.
+        # transit은 RPP(FollowPathTransit)를 쓰는 전용 BT로, coverage는 nav2 기본 BT(DWB)로 주행함.
+        # 빈 문자열이면 nav2가 기본 BT를 씀.
         bt_through = transit_bt_path('through_poses') if mode == 'transit' else ''
         bt_to_pose = transit_bt_path('to_pose') if mode == 'transit' else ''
         capture_sec_single = self.mission_exec_cfg.get('active_capture_seconds', 2.0)
@@ -548,7 +546,7 @@ class MissionExecutor(Nav2DriveMixin, LocalizationMixin, RunContextMixin, Node):
             # 스킵(execute_mission() 참고)에 걸리면, 그 코너점이 담당하던 큰
             # 방향 전환이 사라진 채 이 점 하나만 남을 수 있음 - 회전 없이 바로
             # goToPose만 쏘면 Nav2가 회전+이동을 동시에 처리해야 해서 벽/코너
-            # 근처에서 반복 stall을 일으킴(실측 확인, HISTORY.md §3 참고).
+            # 근처에서 반복 stall을 일으킴(실측 확인).
             # _rotate_in_place_to는 목표가 현재 위치와 같거나 회전량이
             # min_rotation_deg 미만이면 스스로 스킵하므로 안전하게 항상 먼저 호출함.
             if not self._rotate_in_place_to(seg_poses[0], label=label):

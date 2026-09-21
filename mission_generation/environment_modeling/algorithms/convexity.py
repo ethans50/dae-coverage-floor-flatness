@@ -172,8 +172,7 @@ def decompose_to_convex(node, min_area_px, config):
                         res_nodes.extend(decompose_to_convex(child_node, min_area_px, config))
             
             # DEBUG: non-driveable  최종 유실 확인
-            # 시각화를 확인하니 이제 유실 없이 잘 나옴.
-            # 출력된 합계가 늘어나긴함. 
+            # 유실이 없으면 시각화에도 유실 영역이 나타나지 않음.
             # 중복되어 합계가 커질 수 있으나, 로봇 입장에서는 '어느 쪽 노드에서 보든 이 벽은 내 근처에 있다'고 인식하게 되므로 훨씬 안전함.
             final_child_nd_count = sum(cv2.countNonZero(child['nondriveable_mask']) for child in res_nodes)
             if final_child_nd_count == 0:

@@ -7,7 +7,7 @@ AMCL 초기 위치 주입과 수렴 대기, 미션 시작 지점 계산, 주행 
 `nav2_drive_mixin.py`가 하고 여기서는 "로봇이 지금 어디에 있다고 보는가"만 다룸.
 
 믹스인으로 둔 이유는 `nav2_drive_mixin.py`와 같음 - `self._check_amcl_jump()`,
-`self._quaternion_to_yaw(...)` 같은 기존 호출부(`utils/mission_logger.py` 포함)를
+`self._quaternion_to_yaw(...)` 같은 다른 곳의 호출부(`utils/mission_logger.py` 포함)를
 그대로 두기 위함임.
 
 MissionExecutor 쪽에 다음이 있다고 전제함: `navigator`, `spin_executor`,
@@ -147,7 +147,7 @@ class LocalizationMixin:
         sub-segment 길이의 90%로 clamp) 앞선 '러닝스타트' 지점을 반환함 -
         거기서부터 캡처를 켠 채로 p0까지 주행해 들어가는 것 자체가 미션의
         첫 동작이 됨(run_start_prepass가 이 지점에서 p0로 들어가는 동작만
-        수행함, 배경은 HISTORY.md §1 참고). enable_boundary_repass=false이거나
+        수행함). enable_boundary_repass=false이거나
         첫 sub-segment가 너무 짧으면 p0 그대로 반환함.
 
         반환값의 orientation은 p0를 향하는 방향(첫 sub-segment 진행방향의
@@ -277,7 +277,7 @@ class LocalizationMixin:
         시점과 매우 가까워서 self.tf_buffer/tf_listener가 생성된 지 얼마 안 돼
         버퍼에 이 조회 시각까지의 이력이 아직 없어 ExtrapolationException
         ("Requested time ... but the earliest data is at time ...")이 간헐적으로
-        발생할 수 있음(발견 경위는 HISTORY.md §1 참고). spin_once를 직접
+        발생할 수 있음. spin_once를 직접
         반복 펌핑하며 짧게 재시도해 흡수함.
         """
         timeout_sec = self.mission_exec_cfg.get('tf_lookup_retry_sec', 1.0)

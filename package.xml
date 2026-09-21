@@ -24,6 +24,9 @@
   <!-- Gazebo Sim Mode teleport (실주행 환경에서는 미설치되어도 무방함) -->
   <exec_depend>gazebo_msgs</exec_depend>
 
+  <!-- 로봇 urdf(sim_robot_state_publisher)와 시뮬 world(sim_env) 모두 xacro로 전개함 -->
+  <exec_depend>xacro</exec_depend>
+
   <!-- environment_modeling: DAE/맵 처리 -->
   <exec_depend>python3-opencv</exec_depend>
 

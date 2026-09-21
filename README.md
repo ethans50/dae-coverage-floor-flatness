@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/License-All_rights_reserved-lightgrey?style=flat-square)](#license)
 [![Status](https://img.shields.io/badge/Status-research_preview-orange?style=flat-square)](#roadmap)
 
-**Turn a building's 3D design file into a complete, autonomous floor-flatness survey — no human walks the floor.**
+**Turn a building's 3D design file into a complete, autonomous floor-flatness survey. No human walks the floor.**
 
 This package takes a `.dae` architectural model, converts it to a 2D map, decomposes the interior into room-level nodes, plans one offline coverage path that visits every square metre, drives it autonomously with ROS 2 / Nav2, and streams a 3D LiDAR point cloud of the floor into a millimetre-scale flatness heatmap.
 
@@ -24,7 +24,7 @@ This package takes a `.dae` architectural model, converts it to a 2D map, decomp
 | | |
 |---|---|
 | **Problem** | Floor-flatness QA in multi-unit buildings is done by hand with a laser level. Cost scales linearly with the number of units, so it does not scale. |
-| **Input** | One `.dae` (or BIM-exported) model of the floor plan. Nothing else — no prior SLAM run, no manual waypoints. |
+| **Input** | One `.dae` (or BIM-exported) model of the floor plan. Nothing else: no prior SLAM run, no manual waypoints. |
 | **Output** | A flatness heatmap, a filtered floor point cloud, the driven trajectory, and per-run coverage metrics. |
 | **Approach** | Offline: DAE → 2D map → topological decomposition → TSP + Fields2Cover + A\* → a single waypoint file. Online: Nav2/AMCL follows it while a VLP-16 records the floor continuously. |
 | **Scope** | Individual components (F2C, TSP, A\*, Nav2) are established. The contribution is integrating them **end-to-end** for construction QA, and isolating the contribution of each design choice through ablation. |
@@ -36,11 +36,11 @@ This package takes a `.dae` architectural model, converts it to a 2D map, decomp
 Floor flatness is a contractual acceptance criterion at the finishing stage of construction. Two tools are in use today:
 
 - **Line-laser profilometers** — lab-grade accuracy, but priced for smart factories. They are not deployed on ordinary residential sites.
-- **Manual laser levels** — affordable, and increasingly common after recent construction-defect scandals. But a person has to carry the instrument from room to room, so **labour and time grow linearly with the number of units**.
+- **Manual laser levels** — affordable and widely used. But a person has to carry the instrument from room to room, so **labour and time grow linearly with the number of units**.
 
 In an apartment building with hundreds of near-identical units, that linear cost is the bottleneck. This project replaces the *workflow*, not the instrument: instead of a person walking each room, a robot drives a pre-computed coverage path through every room while a 3D LiDAR records the floor.
 
-Because the floor plans repeat, the expensive part — planning — is done **once, offline, from the design file**, and reused for every unit.
+Because the floor plans repeat, the expensive part (planning) is done **once, offline, from the design file**, and reused for every unit.
 
 ## What it does
 
@@ -127,7 +127,7 @@ The `.dae` mesh is sliced at floor level into a 2D occupancy grid, cleaned up, a
 | <img src="docs/images/05_step4_convexity_split.png" width="100%"> | <img src="docs/images/06_step5_long_node_subdivision.png" width="100%"> |
 | **Step 4 — Concavity split.** L-shaped corridors are recursively decomposed by solidity so boustrophedon swaths stay meaningful. | **Step 5 — Long-node subdivision.** Nodes past an aspect-ratio limit are cut for operational efficiency. |
 
-Output: `final_topological_map.npz` — node masks, centroids, and the connection points (doorways) between them.
+Output: `final_topological_map.npz`. It holds node masks, centroids, and the connection points (doorways) between them.
 
 ### Stage 2 — Mission planning (offline)
 
@@ -143,7 +143,7 @@ Output: `final_topological_map.npz` — node masks, centroids, and the connectio
 4. **In-node coverage.** Fields2Cover generates boustrophedon swaths. Wide nodes get an automatic best-angle search; narrow nodes use a fixed angle.
 5. **Swath ordering.** Swaths inside a node are ordered so the node is entered near its entry door and exited near the next room's door.
 6. **Transit.** A\* between nodes with an explicit turn penalty and a wall-proximity penalty, then Douglas–Peucker simplification to remove the staircase artefacts of grid A\*.
-7. **Export.** Pixel coordinates are converted to metres, resampled at a fixed spacing, and written as `final_path.json`, alongside `final_path_meta.json` — a sidecar recording the parameters actually used at planning time.
+7. **Export.** Pixel coordinates are converted to metres, resampled at a fixed spacing, and written as `final_path.json`, alongside `final_path_meta.json`, a sidecar recording the parameters actually used at planning time.
 
 <p align="center">
   <img src="docs/images/09_width_buckets.png" width="60%"><br>
@@ -185,7 +185,7 @@ The costmap uses a **footprint polygon** taken from the URDF collision geometry 
 
 `surface_profiler` subscribes to `/velodyne_points` and transforms every cloud into the map frame. Two details matter:
 
-- **TF synchronisation.** `map→odom` from AMCL updates slower than the LiDAR publishes, so the TF at a cloud's exact stamp may not have arrived yet. `tf2_ros::MessageFilter` is C++-only, so the same behaviour is implemented with `Buffer.wait_for_transform_async` — clouds are queued and processed once a TF covering their stamp actually arrives, without blocking the executor.
+- **TF synchronisation.** `map→odom` from AMCL updates slower than the LiDAR publishes, so the TF at a cloud's exact stamp may not have arrived yet. `tf2_ros::MessageFilter` is C++-only, so the same behaviour is implemented with `Buffer.wait_for_transform_async`. Clouds are queued and processed once a TF covering their stamp actually arrives, without blocking the executor.
 - **Frame low-pass filter.** Per-frame instantaneous linear and angular velocity is computed from consecutive transforms; frames above threshold (AMCL jumps, residual rotation) are dropped. The reference is only updated on frames that pass, so one bad frame cannot poison the next comparison.
 
 Accumulated points are voxel-downsampled and saved as `combined_*.pcd` in the map frame. Floor extraction then keeps points inside a **z window spanning both sides** of the design floor level, and the heatmap renders height over a 1 cm grid with the 2D map overlaid.
@@ -211,7 +211,7 @@ Each entry is stated as *the condition under which the alternative is at a disad
 
 ### Driving and sensing structure
 
-- **Per-segment controllers.** Measuring segments need repeatable, speed-stable tracking of the swath; transit segments need smooth, continuously regulated motion through doorways and corners. A single controller is poorly suited to both, so measurement uses RotationShim + DWB and transit uses Regulated Pure Pursuit, which tracks the planned path directly. The transit BT's `RemovePassedGoals` radius is reduced to 0.3 m for the same reason — via-points in front of a doorway must not be discarded before they are reached, or the planned passage shape is lost.
+- **Per-segment controllers.** Measuring segments need repeatable, speed-stable tracking of the swath; transit segments need smooth, continuously regulated motion through doorways and corners. A single controller is poorly suited to both, so measurement uses RotationShim + DWB and transit uses Regulated Pure Pursuit, which tracks the planned path directly. The transit BT's `RemovePassedGoals` radius is reduced to 0.3 m for the same reason. Via-points in front of a doorway must not be discarded before they are reached, or the planned passage shape is lost.
 - **Polygon footprint.** The Waffle's collision box is offset behind the rotation centre and its wheels protrude sideways, which a circular `robot_radius` cannot represent at the rear corners. A polygon taken from the URDF collision geometry is used instead.
 - **Rotation aim point.** The last point of a sub-segment can point past a doorway, which makes it a poor aim target in front of one. The in-place rotation aims at the **first** waypoint at least `rotate_aim_min_dist_m` away.
 - **Capture window scope.** A capture window opens when a node's coverage starts, stays open through corners inside the node, and closes after the boundary repass. Transit between nodes runs faster than the speed validated for measurement quality, so it is not recorded.
@@ -222,7 +222,7 @@ Each entry is stated as *the condition under which the alternative is at a disad
 Following an offline plan with a reactive local planner can produce stalls that neither the planner nor Nav2 resolves on its own. The executor detects and escalates them itself:
 
 - **Stall watchdog.** In case Nav2 recovery repeats without progress, the executor tracks progress independently and cancels the action after `nav_stuck_cancel_sec` without movement.
-- **Three-stage escalation.** After a cancel: (1) retry the Nav2 action, (2) back up a few centimetres and retry — near a wall, the `Spin` pre-collision check can reject an in-place rotation, (3) publish `/cmd_vel` directly for a short, slow, distance-bounded move, guarded by an AMCL-jump check and a hard timeout. Single-goal drives use stages 1–2 only.
+- **Three-stage escalation.** After a cancel: (1) retry the Nav2 action, (2) back up a few centimetres and retry (near a wall, the `Spin` pre-collision check can reject an in-place rotation), (3) publish `/cmd_vel` directly for a short, slow, distance-bounded move, guarded by an AMCL-jump check and a hard timeout. Single-goal drives use stages 1–2 only.
 - **Per-run diagnostics.** Every run writes `drive_debug_*.csv` (periodic pose, active action, progress metric, recovery count) while driving and `stall_report_*.csv` afterwards, and renders stall locations onto the driven path.
 
 <p align="center">
@@ -271,7 +271,7 @@ TurtleBot3 description, Nav2 parameters, Gazebo worlds and models are **vendored
 
 Full, machine-by-machine instructions: **[docs/en/installation.md](docs/en/installation.md)** ([한국어](docs/kr/installation.md)).
 
-Short version:
+Short version. Steps 1–2 run on every machine taking a [planning/driving/sensing](#system-overview) role; step 3 is one line per role, on that role's machine only:
 
 ```bash
 # 1. External data store (kept outside the repo)
@@ -287,10 +287,11 @@ cd ~/ros2_ws
 rosdep install --from-paths src --ignore-src -r -y
 colcon build --symlink-install && source install/setup.bash
 
-# 3. Role-specific Python dependencies
+# 3. Role-specific Python dependencies - planning machine runs the first line only,
+#    sensing machine (the laptop wired to the VLP-16) runs the second line only
 cd ~/ros2_ws/src/dae-coverage-floor-flatness
-pip install -r requirements-mission_generation.txt   # planning machine
-pip install -r requirements-surface_profiling.txt    # sensing machine
+pip install -r requirements-mission_generation.txt   # planning role
+pip install -r requirements-surface_profiling.txt    # sensing role
 ```
 
 > **Fields2Cover must be built from source at a pinned commit** (`85d6cf7`), not installed from PyPI. Different F2C versions produce different swath geometry, which changes the node visit order and makes results non-comparable across machines. See the installation guide.
@@ -302,7 +303,7 @@ Run each command in a new terminal, **in the order shown**. Later steps consume 
 **Simulation** (one machine):
 
 ```bash
-# 0. Generate the path — once per floor plan; re-run after changing path-related parameters
+# 0. Generate the path - once per floor plan; re-run after changing path-related parameters
 cd ~/ros2_ws/src/dae-coverage-floor-flatness/mission_generation
 python3 run_generation_pipeline.py
 
@@ -315,11 +316,15 @@ ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=
 # 3. Floor measurement node
 ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true
 
-# 4. Mission execution — always last
+# 4. Mission execution - always last
 ros2 launch dae_coverage_floor_flatness mission_execution.launch.py is_sim:=true
 ```
 
 **Real robot** (three machines; synchronise the Jetson and laptop clocks, e.g. with chrony, beforehand):
+
+> **Place the robot at the start pose before running any of this.** On hardware `mission_executor` only injects the computed start pose as the AMCL initial estimate. If the robot is not physically there, the run begins from a wrong position.
+>
+> `visualization/mission_generation/mission_planning/full_mission_path.png` from the planning stage marks that pose with its heading (red arrow) and the distance to the nearest wall in centimetres. Measure that distance with a tape and align the robot along the arrow. Heading matters more than position: an initial heading error is baked into the `map→odom` transform and leaves the whole run looking skewed.
 
 ```bash
 # 0. [Planning machine] Generate the path, then copy ~/dae_floor_maps to the same location on the robot (Jetson)
@@ -331,13 +336,13 @@ ros2 launch dae_coverage_floor_flatness real_bringup.launch.py
 # 2. [Jetson] Nav2 + AMCL
 ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=false
 
-# 3. [Laptop] VLP-16 driver — confirm with `ros2 topic hz /velodyne_points` before moving on
+# 3. [Laptop] VLP-16 driver - confirm with `ros2 topic hz /velodyne_points` before moving on
 ros2 launch velodyne velodyne-all-nodes-VLP16-launch.py
 
 # 4. [Laptop] Floor measurement node
 ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=false
 
-# 5. [Jetson] Mission execution — always last
+# 5. [Jetson] Mission execution - always last
 ros2 launch dae_coverage_floor_flatness mission_execution.launch.py is_sim:=false
 ```
 
@@ -370,7 +375,7 @@ All settings live in [`config/params.yaml`](config/params.yaml), grouped by pipe
 
 The contribution of each of the five optimizations is isolated by leave-one-out ablation (9 configurations, *n* ≥ 4 runs each). Metric definitions, configurations and reproducibility measures are described in the [evaluation protocol](docs/en/evaluation.md).
 
-> **Results are not published yet.** They will be uploaded once the full matrix has been collected.
+> **Result figures are not included in this repository.**
 
 ## Hardware
 
@@ -390,11 +395,10 @@ The full pipeline also runs entirely in Gazebo with no hardware, which is how th
 - [ ] Quantify effective measurement error against the VLP-16 datasheet specification, including the improvement from multi-scan overlap.
 - [ ] Validate the pipeline on a second, structurally different floor plan.
 - [ ] Long-duration real-hardware validation of the per-segment controller setup (DWB + RPP).
-- [ ] Publish the paper and update the citation below.
 
 ## Citation
 
-A paper is in preparation. Until it appears, please cite the software:
+Please cite the software:
 
 ```bibtex
 @software{song_dae_coverage_floor_flatness,
@@ -411,9 +415,15 @@ A paper is in preparation. Until it appears, please cite the software:
 
 Copyright © 2026 Changgon Song. All rights reserved.
 
-No open-source license is granted for this repository at this time. The code and documentation may not be copied, modified or redistributed without prior written permission from the copyright holder. A license will be chosen after publication.
+No open-source license is granted for this repository. The code and documentation may not be copied, modified or redistributed without prior written permission from the copyright holder.
 
-The vendored TurtleBot3 launch, description and Gazebo files remain under their original Apache-2.0 license from their copyright holders (ROBOTIS, Open Source Robotics Foundation), and their original headers are retained.
+The files below are derived from files by ROBOTIS and the Open Source Robotics Foundation and remain under the Apache License 2.0 (full text: [`LICENSES/Apache-2.0.txt`](LICENSES/Apache-2.0.txt)). Each was modified for this package, and the original headers are kept wherever the originals had them.
+
+- `launch/`: `real_bringup`, `real_robot_state_publisher`, `sim_env`, `sim_robot_state_publisher`, `sim_spawn_robot`, `tb3_waffle_nav2`
+- `urdf/turtlebot3_waffle.urdf.xacro`, `urdf/turtlebot3_waffle.gazebo.xacro`
+- `config/tb3_waffle_nav2_params.yaml`, `rviz/tb3_navigation2.rviz`
+
+The Apache License does not apply to any other file in this repository.
 
 ## Acknowledgments
 

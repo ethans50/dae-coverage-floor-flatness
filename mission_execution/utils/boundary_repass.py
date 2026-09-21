@@ -3,7 +3,6 @@
 """
 "지나쳐야 채워진다" 원칙(mission_executor.py 참고)은 로봇이 한 지점을 접근 +
 통과-후-멀어짐, 양방향으로 지나쳐야 라이다 blind cone이 메워짐을 전제로 함.
-도입 경위·실측 근거는 HISTORY.md §1 참고.
 
 **진입(entry)**: coverage 시작 지점은, 시작하자마자 그 스와스 전체 길이만큼
 계속 멀어지며 캡처가 이어지므로(시간제한 없음) 대체로 이 원칙을 자연히
@@ -22,8 +21,8 @@ run_exit_repass가 모든 coverage exit에서 동일하게, 왔던 방향으로 
 자체가 지나가는 길 안에 있으므로 별도의 벽 근접/안전마진 계산이 필요 없음.
 
 blind cone이 없는 센서로 교체되면 이 보정 자체가 불필요해질 수 있음(단,
-아래 클래스 docstring 및 CLAUDE.md의 "향후 센서 교체 시 주의" 참고 - 검증
-없이 가정하지 말 것) - `mission_execution.enable_boundary_repass`를 false로
+바닥 요철에 의한 시야 차폐는 blind cone과 별개로 남으므로, 새 센서로 단일
+패스와 왕복 패스의 포인트 밀도를 실측 비교해 검증하기 전에는 가정하지 말 것) - `mission_execution.enable_boundary_repass`를 false로
 끄면 MissionExecutor 본체 로직은 건드리지 않고 이 파일의 동작만 완전히
 비활성화됨(캡처는 정상 진행하되 왕복 없이 즉시 시작/종료로 폴백).
 """
@@ -47,8 +46,9 @@ class BoundaryRepassController:
     서비스 호출)를 그대로 재사용함 - 이 클래스 자체는 그 primitive들을 어떤
     순서로 왕복 조합하는지에 대한 안무(choreography)만 담당함. 상태 없는
     순수 함수 모음인 다른 utils/ 파일과 달리 클래스로 만든 이유, 그리고
-    되짚기/프리패스가 리터럴 후진이 아니라 유턴+전진인 이유는 CLAUDE.md의
-    "진입 vs 이탈의 비대칭" 항목 참고.
+    되짚기/프리패스가 리터럴 후진이 아니라 유턴+전진인 이유는, nav2가 후진을
+    금지(min_vel_x=0)하고 360도 스캔 라이다는 로봇 방향과 무관하게 캡처되므로
+    유턴+전진이 리터럴 후진과 물리적으로 동등하기 때문임.
     """
 
     def __init__(self, executor):

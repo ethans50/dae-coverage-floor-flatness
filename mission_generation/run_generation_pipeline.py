@@ -14,7 +14,7 @@ from mission_generation.mission_planning.mission_planner import MissionPlanner
 
 
 def _snapshot_planning_outputs(label, workspace_root, grid_dir, map_yaml_path, topology_dir, topology_file, metric_dir, final_path_file, env_vis_dir=None, planner_vis_dir=None):
-    """EVAL.md 알고리즘 비교 실험용 - 맵/토폴로지/최종 경로/시각화 디버그
+    """알고리즘 비교 실험용 - 맵/토폴로지/최종 경로/시각화 디버그
     이미지를 <workspace_root>/eval_runs/<label>/ 아래에 복사해둠(원본은
     그대로 flat 경로에 남겨서 기존 "재사용?" 프롬프트가 계속 정상 동작하게
     함).
@@ -22,7 +22,7 @@ def _snapshot_planning_outputs(label, workspace_root, grid_dir, map_yaml_path, t
     map_from_dae.yaml/.pgm, final_topological_map.npz, final_path.json,
     final_path_meta.json은 항상 같은 고정 경로에 저장되는 파일이라,
     이 함수 없이 다음 알고리즘을 이어서 생성하면 이전 결과가 흔적도 없이
-    덮어써짐(EVAL.md §6/§7의 데이터 정합성 문제 참고) - 그래서 라벨을 준
+    덮어써져 실험 간 데이터 정합성이 깨짐 - 그래서 라벨을 준
     경우에만 복사본을 별도로 남김. 시각화 디렉토리(env_vis_dir/
     planner_vis_dir)도 같은 이유로 매 생성마다 덮어써져서 함께 스냅샷함
     - 이 둘은 단일 파일이 아니라 디렉토리 통째로 복사함."""
@@ -51,7 +51,7 @@ def _snapshot_planning_outputs(label, workspace_root, grid_dir, map_yaml_path, t
     else:
         print(f"[!] Warning: snapshot 대상 토폴로지 파일이 없어 건너뜀: {topology_file}")
 
-    # 3. 최종 경로 + 계획 시점 파라미터 사이드카
+    # 3. 최종 경로 + planning 시점 파라미터 사이드카
     dst_metric_dir = os.path.join(eval_root, os.path.relpath(metric_dir, workspace_root))
     os.makedirs(dst_metric_dir, exist_ok=True)
     if os.path.exists(final_path_file):
@@ -62,7 +62,7 @@ def _snapshot_planning_outputs(label, workspace_root, grid_dir, map_yaml_path, t
     if os.path.exists(meta_file):
         shutil.copy2(meta_file, dst_metric_dir)
 
-    # 4. 시각화 디버그 이미지(환경 모델링/미션 플래닝) - 디렉토리 통째로 복사
+    # 4. 시각화 디버그 이미지(env modeling/mission planning) - 디렉토리 통째로 복사
     for vis_dir in (env_vis_dir, planner_vis_dir):
         if not vis_dir:
             continue
@@ -115,13 +115,14 @@ def run_generation_pipeline(snapshot_label=None):
     cache_file = os.path.normpath(os.path.join(metric_dir, "final_path.json"))
 
     # 'mission_execution' - boundary_repass_distance_m/enable_boundary_repass는
-    # 실행 단계 섹션에 있지만, 계획 단계에서도 동일 값이 필요해 명시적으로
-    # 꺼내옴(**mission_cfg 흡수에 기대지 않는 이유는 CLAUDE.md 참고). 이 값이
-    # 실행 시점(mission_executor.py)의 값과 다르면 계획된 transit 시작점과
-    # 실제 로봇이 repass 후 서 있을 위치가 어긋남 - 다만 이제는
+    # 실행 단계 섹션에 있지만, planning 단계에서도 동일 값이 필요해 명시적으로
+    # 꺼내옴(mission_planner 섹션을 그대로 넘기는 방식으로는 다른 섹션의
+    # 값이 전달되지 않음). 이 값이
+    # 실행 시점(mission_executor.py)의 값과 다르면 planning된 transit 시작점과
+    # 실제 로봇이 repass 후 서 있을 위치가 어긋남 - 다만
     # mission_planner.py가 저장하는 final_path_meta.json을 mission_executor.py가
     # 시작 시 자동 대조하므로, 어긋나면 미션이 스스로 CRITICAL ERROR로
-    # 중단됨(사람이 기억할 필요 없음, 배경은 HISTORY.md §2 참고).
+    # 중단됨(사람이 기억할 필요 없음).
     mission_exec_cfg = config.get('mission_execution', {})
     boundary_repass_distance_m = mission_exec_cfg.get('boundary_repass_distance_m', 1.5)
     enable_boundary_repass = mission_exec_cfg.get('enable_boundary_repass', True)
@@ -222,8 +223,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Mission Generator (Workstation) - Environment Modeling and Mission Planning")
     parser.add_argument(
         "--snapshot-label", type=str, default=None,
-        help="EVAL.md 알고리즘 비교 실험용 - 주어지면 이번에 쓰인 맵/토폴로지/final_path를 "
-             "<workspace_root>/eval_runs/<라벨>/에 복사해둠. 안 주면(기본값) 기존 동작과 동일함."
+        help="알고리즘 비교 실험용 - 주어지면 이번에 쓰인 맵/토폴로지/final_path를 "
+             "<workspace_root>/eval_runs/<라벨>/에 복사해둠. 안 주면(기본값) 기본 동작과 동일함."
     )
     args = parser.parse_args()
     run_generation_pipeline(snapshot_label=args.snapshot_label)

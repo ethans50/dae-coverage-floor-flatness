@@ -1,5 +1,5 @@
 # surface_profiling(3D 라이다 포인트클라우드 수집) 역할 노트북 전용 pip 의존성
-# 고정 버전. 검증된 기준 기기(2026-09) 상태를 그대로 고정함.
+# 고정 버전. 검증된 기준 기기 상태를 그대로 고정함.
 #
 # 설치:
 #   pip install -r requirements-surface_profiling.txt
@@ -10,8 +10,7 @@
 # 못 찾아 실패함). GPU가 없거나 CUDA 버전이 다른 기기는
 # https://pytorch.org/get-started/locally/ 에서 해당 기기에 맞는 커맨드로 대체할 것
 # - torch는 mission_planner.py(경로 생성)에는 안 쓰이고 surface_profiler.py의
-# PointCloud2 좌표 변환에만 쓰이므로, CUDA 없이 CPU 빌드로 깔아도 기능상 문제
-# 없음(속도만 느려짐).
+# PointCloud2 좌표 변환에만 쓰이므로, CUDA 없이 CPU 빌드로 깔아도 기능상 문제 없음(속도만 느려짐).
 
 opencv-python-headless==4.13.0.92
 numpy==2.2.6

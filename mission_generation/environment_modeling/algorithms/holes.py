@@ -153,7 +153,7 @@ def cut_holes(node, resolution):
             
         # 분리된 각각의 조각들을 새로운 노드로 등록.
         for j in range(1, num_labels):
-            # 이제 refined_labels를 사용하여 틈새 없이 영역을 가져옴
+            # refined_labels를 사용하여 틈새 없이 영역을 가져옴
             final_node_area = (refined_labels == j).astype(np.uint8) * 255
             
             # '절단선이 없는 깨끗한 원본'에서 해당 영역의 픽셀만 추출

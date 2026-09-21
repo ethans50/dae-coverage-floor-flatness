@@ -3,16 +3,16 @@
 MissionExecutor의 "실행 맥락" 믹스인 - 입력을 읽어오고 결과를 내보내는 양 끝단.
 
 앞단은 실행 모드(is_sim) 해석, `params.yaml` 파싱, 맵 바운즈/`final_path.json`
-로드와 계획-실행 파라미터 대조(`_verify_plan_meta`)이고, 뒷단은 정체 리포트와
+로드와 planning-실행 파라미터 대조(`_verify_plan_meta`)이고, 뒷단은 정체 리포트와
 주행 경로/시각화 저장 및 ROS 자원 셧다운임. 그 사이의 실제 주행은
 `mission_executor.py`(미션 흐름), `nav2_drive_mixin.py`(제어),
 `localization_mixin.py`(위치 추정)가 나눠 맡음.
 
-`eval_run_label` 스냅샷 규칙과 `run_ts` 공유 타임스탬프는 DETAILS.md §3,
-도입 경위는 HISTORY.md §13/§14 참고.
+`eval_run_label`을 주면 그 라벨의 스냅샷 폴더에서 경로/맵을 읽고, `run_ts`는
+여러 기기에서 실행하는 프로세스들이 산출물 파일명 타임스탬프를 공유하는 데 씀.
 
 믹스인으로 둔 이유는 `nav2_drive_mixin.py`와 같음 - `self._eval_output_dir(...)`
-같은 기존 호출부를 그대로 두기 위함임.
+같은 다른 곳의 호출부를 그대로 두기 위함임.
 """
 
 import os
@@ -52,16 +52,16 @@ class RunContextMixin:
         self.declare_parameter('is_sim', False)
         self.is_sim = self.get_parameter('is_sim').get_parameter_value().bool_value
 
-        # EVAL.md 알고리즘 비교 실험용 - launch argument로 라벨을 주면 이번 미션의
+        # 알고리즘 비교 실험용 - launch argument로 라벨을 주면 이번 미션의
         # 출력물(robot_path/stall_report/drive_debug csv, 시각화 png)을
         # <workspace_root>/eval_runs/<라벨>/ 아래로 모아 저장함. 빈 문자열(기본값)이면
-        # 기존처럼 workspace_root 바로 아래 flat 경로에 저장함 - _eval_output_dir 참고.
+        # 평소처럼 workspace_root 바로 아래 flat 경로에 저장함 - _eval_output_dir 참고.
         self.declare_parameter('eval_run_label', '')
         self.eval_run_label = self.get_parameter('eval_run_label').get_parameter_value().string_value
 
         # 여러 기기에 나눠 실행될 때 산출물 파일명 타임스탬프를 맞추기 위한
         # 공유 값. 양쪽 launch에 같은 값을 넘기면 각자 시계 대신 이 문자열을
-        # 씀. 빈 문자열이면 각자 찍음(DETAILS.md §3 참고).
+        # 씀. 빈 문자열이면 각자 찍음.
         self.declare_parameter('run_ts', '')
         run_ts_param = self.get_parameter('run_ts').get_parameter_value().string_value
         self._shared_run_ts = None
@@ -73,7 +73,7 @@ class RunContextMixin:
                 )
             except ValueError:
                 print(f"[!] CRITICAL ERROR: run_ts='{run_ts_param}' 형식이 잘못됨 - "
-                      "'YYYY-MM-DD_HH-MM-SS' 형식이어야 함(예: 2026-09-14_14-17-31).")
+                      "'YYYY-MM-DD_HH-MM-SS' 형식이어야 함.")
                 sys.exit(1)
 
         if self.is_sim:
@@ -112,15 +112,15 @@ class RunContextMixin:
         )
         self.env_cfg = self.config.get('environment_modeling', {})
         self.mission_exec_cfg = self.config.get('mission_execution', {})
-        # 실행 시점에 직접 쓰이진 않지만, 계획 시점에 쓰인 값(final_path_meta.json)과
+        # 실행 시점에 직접 쓰이진 않지만, planning 시점에 쓰인 값(final_path_meta.json)과
         # 대조하기 위해서만 참조함 - _verify_plan_meta 참고.
         self.mission_planner_cfg = self.config.get('mission_planner', {})
 
     def _eval_output_dir(self, rel_path):
         """이번 미션의 출력물 저장 경로를 계산함. eval_run_label이 비어있으면
-        기존과 동일하게 workspace_root 바로 아래(rel_path)를 씀 - 평소 실행은
+        평소와 동일하게 workspace_root 바로 아래(rel_path)를 씀 - 평소 실행은
         이 함수를 거쳐도 결과가 전혀 달라지지 않음. 라벨이 있으면
-        workspace_root/eval_runs/<라벨>/rel_path로 리다이렉트함(EVAL.md 참고).
+        workspace_root/eval_runs/<라벨>/rel_path로 리다이렉트함.
         map_from_dae.yaml/final_path.json처럼 다른 실행이 참조해야 하는 입력성
         경로는 이 함수를 쓰지 않음 - 순수 출력 전용 경로에만 사용할 것."""
         if self.eval_run_label:
@@ -144,8 +144,8 @@ class RunContextMixin:
         eval_run_label이 있으면 eval_runs/<라벨>/ 스냅샷을 확정적으로 읽음 -
         flat 경로(analytics/metrics/)의 원본은 생성할 때마다 덮어써져서
         조합을 번갈아 생성하면 다른 조합의 경로를 읽게 됨. 라벨이 없으면
-        기존대로 flat만 읽음. map_from_dae.yaml은 조합과 무관하게 동일해
-        계속 flat 전용임(_eval_output_dir 참고, DETAILS.md §3)."""
+        평소대로 flat만 읽음. map_from_dae.yaml은 조합과 무관하게 동일해
+        계속 flat 전용임(_eval_output_dir 참고)."""
         if self.eval_run_label:
             metric_dir = os.path.join(
                 self.workspace_root, 'eval_runs', self.eval_run_label,
@@ -173,18 +173,18 @@ class RunContextMixin:
 
     def _verify_plan_meta(self, metric_dir):
         """
-        final_path.json이 계획 시점(run_generation_pipeline.py -> MissionPlanner.plan())에
+        final_path.json이 planning 시점(run_generation_pipeline.py -> MissionPlanner.plan())에
         실제로 사용한 파라미터 값을, 지금 이 노드가 params.yaml에서 읽은 실행 시점 값과
         대조함. mission_planner.py가 plan() 마지막에 함께 저장하는 사이드카
         'final_path_meta.json'을 읽어 비교함.
 
         boundary_repass_distance_m/enable_boundary_repass는 final_path.json의
         좌표 자체(transit이 실제로 시작하는 지점)에 기하학적으로 반영되므로, 두
-        시점의 값이 어긋나면 계획된 transit 시작점과 실제 repass 후 로봇 위치가
+        시점의 값이 어긋나면 planning된 transit 시작점과 실제 repass 후 로봇 위치가
         조용히 달라짐 - robot_width/path_safety_margin도 경로 형상 자체에
         반영되는 같은 범주의 값임. 이 일치를 사람이 매번 기억할 필요 없도록
         여기서 자동으로 대조하고, 어긋나면 다른 CRITICAL ERROR들과 동일하게
-        즉시 중단시킴(도입 배경은 HISTORY.md §2 참고).
+        즉시 중단시킴.
 
         사이드카 파일이 없으면(예: 이 검증 로직 추가 이전에 생성된 오래된
         final_path.json) 대조 자체를 건너뛰고 경고만 남김 - 하위 호환을 위해

@@ -1,5 +1,10 @@
 <?xml version="1.0"?>
-<sdf version="1.6">
+<sdf version="1.6" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- 건물 모델명은 params.yaml의 environment_modeling.dae_file에서 확장자를 뗀 값임.
+       sim_env.launch.py가 그 값을 넘겨 실행 시점에 실제 world를 만듦 - 맵과 시뮬
+       건물이 서로 다른 모델을 가리키는 것을 막기 위해 출처를 params.yaml 하나로 둠. -->
+  <xacro:arg name="model_name" default="INU_9_211"/>
   <world name="default">
 
     <plugin name="gazebo_ros_state" filename="libgazebo_ros_state.so">
@@ -49,11 +54,11 @@
       </ode>
     </physics>
 
-    <model name="INU_9_211">
+    <model name="$(arg model_name)">
       <static>1</static>
       <pose>0 0 0 0 0 0</pose>
       <include>
-        <uri>model://INU_9_211</uri>
+        <uri>model://$(arg model_name)</uri>
       </include>
     </model>
 

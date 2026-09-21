@@ -2,6 +2,13 @@
 <!--
   turtlebot3_waffle.gazebo.xacro
 
+  Derived from the Gazebo plugins of turtlebot3_gazebo/models/turtlebot3_waffle/
+  model.sdf in https://github.com/ROBOTIS-GIT/turtlebot3 (Copyright ROBOTIS
+  CO., LTD.), licensed under the Apache License, Version 2.0
+  (http://www.apache.org/licenses/LICENSE-2.0). Modified for
+  dae_coverage_floor_flatness: ported to xacro, and a VLP-16 gpu_ray plugin
+  was added.
+
   Gazebo 전용 플러그인 정의 파일. 로봇의 물리적 구조(joint/link)는 전혀 포함하지
   않으며, turtlebot3_waffle.urdf.xacro가 이 파일을 include해서 사용함.
 

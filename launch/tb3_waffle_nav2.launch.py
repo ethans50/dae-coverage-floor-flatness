@@ -28,13 +28,37 @@ from launch_ros.actions import Node
 TURTLEBOT3_MODEL = os.environ['TURTLEBOT3_MODEL']
 ROS_DISTRO = os.environ.get('ROS_DISTRO')
 
+# 외부 저장소 경로의 기본값. params.yaml을 못 읽을 때만 쓰는 폴백이며,
+# 다른 진입점들이 쓰는 값과 동일하게 맞춰둠.
+FALLBACK_WORKSPACE_ROOT = '~/dae_floor_maps'
+FALLBACK_GRID_DIR = 'maps/grid'
+MAP_FILENAME = 'map_from_dae.yaml'   # map_generator.py가 쓰는 고정 파일명
+
+
+def _resolve_default_map_path(pkg_share):
+    """맵 기본 경로를 params.yaml에서 직접 계산함.
+
+    경로의 단일 출처를 params.yaml로 유지하기 위함 - 여기서 경로를 따로
+    적어두면 global.workspace_root를 바꿨을 때 Nav2만 옛 경로를 보게 됨.
+    파일을 못 읽어도 launch가 죽지 않도록 폴백 값으로 계속 진행함.
+    """
+    workspace_root, grid_dir = FALLBACK_WORKSPACE_ROOT, FALLBACK_GRID_DIR
+    try:
+        import yaml
+        with open(os.path.join(pkg_share, 'config', 'params.yaml'), 'r') as f:
+            config = yaml.safe_load(f) or {}
+        workspace_root = config.get('global', {}).get('workspace_root', workspace_root)
+        grid_dir = config.get('environment_modeling', {}).get('output_grid_dir', grid_dir)
+    except Exception as e:
+        print(f'[tb3_waffle_nav2.launch] params.yaml을 읽지 못해 기본 경로로 폴백함: {e}')
+    return os.path.join(os.path.expanduser(workspace_root), grid_dir, MAP_FILENAME)
+
 
 def generate_launch_description():
     pkg_share = get_package_share_directory('dae_coverage_floor_flatness')
 
     # map
-    home_dir = os.path.expanduser('~')
-    default_map_path = os.path.join(home_dir, 'dae_floor_maps', 'maps', 'grid', 'map_from_dae.yaml')
+    default_map_path = _resolve_default_map_path(pkg_share)
     map_dir = LaunchConfiguration('map', default=default_map_path)
 
     # tutlebot3_navigation2 param (waffle)
@@ -53,14 +77,16 @@ def generate_launch_description():
     nav2_launch_file_dir = os.path.join(get_package_share_directory('nav2_bringup'), 'launch')
 
     return LaunchDescription([
+        # default_value에 LaunchConfiguration 대신 실제 경로 문자열을 줌 -
+        # `ros2 launch ... --show-args`에 해석된 경로가 그대로 보이게 하기 위함.
         DeclareLaunchArgument(
             'map',
-            default_value=map_dir,
-            description='Full path to map file to load'),
+            default_value=default_map_path,
+            description='Full path to map file to load (default: params.yaml의 workspace_root 기준)'),
 
         DeclareLaunchArgument(
             'params_file',
-            default_value=param_dir,
+            default_value=default_param_path,
             description='Full path to param file to load'),
 
         DeclareLaunchArgument(

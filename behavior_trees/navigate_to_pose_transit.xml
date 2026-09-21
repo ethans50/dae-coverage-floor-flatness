@@ -2,7 +2,7 @@
   transit(캡처 없음) 구간 중 목표가 1개뿐인 sub-segment 전용 NavigateToPose BT.
   nav2 기본 navigate_to_pose_w_replanning_and_recovery.xml의 복사본이며,
   FollowPath의 controller_id를 "FollowPathTransit"(Regulated Pure Pursuit)로 바꾼
-  것 하나만 다름(HISTORY.md §23). 목표가 하나뿐이라 through_poses
+  것 하나만 다름. 목표가 하나뿐이라 through_poses
   쪽과 달리 RemovePassedGoals 자체가 없음.
 
   coverage 구간과 boundary repass는 이 BT를 쓰지 않고 nav2 기본 BT(DWB)를 그대로 씀.

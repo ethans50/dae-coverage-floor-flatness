@@ -34,7 +34,7 @@ def visualize_planned_wall_proximity(json_path_data, map_yaml_path, img_out_path
     별도 PNG로 저장함.
     연속된 두 웨이포인트 사이를 sample_step_m 간격으로 보간해서 검사함.
     F2C 스와스 웨이포인트는 앵커(시작/꼭짓점/끝)만 남기고 직선 중간의
-    보간점을 두지 않으므로(HISTORY.md §2 참고), 웨이포인트만 봐서는 직선
+    보간점을 두지 않으므로, 웨이포인트만 봐서는 직선
     중간의 위험 지점을 놓칠 수 있기 때문임.
     """
     print("\n[*] Generating Planned-Path Wall-Proximity Risk Map...")
@@ -87,7 +87,7 @@ def visualize_stall_points(csv_filename, img_out_path,
     coverage 단일점 좌표와 눈으로 대조해서 한 번 더 걸러야 함. nav2
     feedback 기반으로 "왜"까지 남기는 상호 보완적 매커니즘은
     utils/stall_logger.py와 surface_profiling/utils/stall_report_analyzer.py
-    참고(도입 배경은 HISTORY.md §4/§5).
+    참고.
     """
     print("\n[*] Generating Actual-Path Stall/Delay Map...")
     try:
@@ -156,11 +156,11 @@ def visualize_stall_points(csv_filename, img_out_path,
 
 def visualize_paths(csv_filename, json_path_data, img_out_path):
     """
-    실제 AMCL 주행 데이터(CSV)와 계획된 경로(JSON)를 비교 시각화해 PNG로 저장함.
+    실제 AMCL 주행 데이터(CSV)와 planning된 경로(JSON)를 비교 시각화해 PNG로 저장함.
     """
     print("\n[*] Generating Path Tracking Performance Graph...")
     try:
-        # 1. JSON 파싱 (계획된 웨이포인트)
+        # 1. JSON 파싱 (planning된 웨이포인트)
         planned_x = [wp['pose']['position']['x'] for wp in json_path_data]
         planned_y = [wp['pose']['position']['y'] for wp in json_path_data]
 
@@ -177,7 +177,7 @@ def visualize_paths(csv_filename, json_path_data, img_out_path):
         # 3. 그래프 그리기 (맵 원점 기준 1:1 매칭)
         plt.figure(figsize=(10, 8))
 
-        # 계획된 경로 (파란색 점선)
+        # planning된 경로 (파란색 점선)
         plt.plot(planned_x, planned_y, 'b--o', label='Planned Path (Waypoints)', markersize=4, alpha=0.6)
 
         # 실제 주행 궤적 (빨간색 실선)

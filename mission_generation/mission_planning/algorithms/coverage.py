@@ -38,17 +38,17 @@ def generate_raw_swaths(mask, robot_params, decompose=False, split_angle_rad=Non
 
     문지방 돌출부(작은 조각들)는 F2C에 넘기지 않음 - Leg2(문지방 중심점 ->
     coverage 시작점)가 이미 record_pcd=True로 그 위를 지나가므로 F2C가 별도로
-    커버할 필요가 없음(node_002 사례로 검증됨).
+    커버할 필요가 없음(실측으로 검증됨).
 
     swath_width_px(라이다 측정반경 기반) 방식은 wide 노드 및 decompose=False일
-    때 그대로 유지함 - 그 용도(넓은 방에서 평행선 간격)엔 원래도 맞는 값임.
+    때 그대로 유지함 - 그 용도(넓은 방에서 평행선 간격)에 맞는 값임.
     op_width에 이 값을 그대로 쓰면 narrow/ultra_narrow 노드에서 통로 폭보다
-    커져 F2C가 스와스를 못 만드는 문제가 있었음(HISTORY.md §2 참고) -
+    커져 F2C가 스와스를 못 만드는 문제가 있음 -
     narrow/ultra_narrow는 로봇 실제 물리 폭을 대신 씀.
 
     enable_optimal_swath_angle=False면 wide 노드(decompose=False)에서도
     generateBestSwaths의 각도 자동탐색을 쓰지 않고 0도(가로) 고정 각도로
-    스와스를 생성함 - EVAL.md 알고리즘 2(zigzag ablation 극단판) 실험용
+    스와스를 생성함 - 알고리즘 비교 실험(zigzag ablation)용
     토글임. narrow/ultra_narrow(decompose=True) 경로는 이미 split_angle_rad로
     각도가 강제되므로 이 토글의 영향을 받지 않음.
     """

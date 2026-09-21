@@ -68,8 +68,8 @@ def main():
     # MissionPlanner.__init__()이 받지 않는 키(plan() 단계 전용 파라미터, 경로 설정용 키)는
     # 반드시 모두 pop해서 **planner_cfg로 생성자에 전달되지 않도록 분리함 - 안 그러면
     # "unexpected keyword argument" TypeError가 발생함. 현재 params.yaml의
-    # mission_planner 섹션에는 이 두 키만 존재하지만, 과거 버전의 sampling_step처럼
-    # 나중에 안 쓰는 키가 남아있을 수 있으니 새 kwarg-only 설정을 추가할 때 이 목록도
+    # mission_planner 섹션에는 이 두 키만 존재하지만, 안 쓰는 키가
+    # 남아있을 수 있으니 새 kwarg-only 설정을 추가할 때 이 목록도
     # 함께 갱신할 것.
     planner_vis_rel = planner_cfg.pop('visualization_dir', 'visualization/mission_generation/mission_planning')
     planner_vis_path = os.path.join(workspace_root, planner_vis_rel)

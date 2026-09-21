@@ -12,21 +12,18 @@ generate_floor_heatmap)로 다시 실행함.
 필요 없이 이미 모아둔 pcd로 빠르게 재테스트하기 위함.
 
 사용법:
-    python3 reprocess_pcd.py combined_2026-07-10_23-54-47.pcd
+    python3 reprocess_pcd.py combined_<timestamp>.pcd
 
     # params.yaml 값을 무시하고 이번 실행에만 다른 값을 쓰고 싶을 때:
-    python3 reprocess_pcd.py combined_2026-07-10_23-54-47.pcd --z-min -0.01 --z-max 0.04
-    python3 reprocess_pcd.py combined_2026-07-10_23-54-47.pcd --grid-size 0.01
-    python3 reprocess_pcd.py combined_2026-07-10_23-54-47.pcd --no-map-overlay
+    python3 reprocess_pcd.py combined_<timestamp>.pcd --z-min -0.01 --z-max 0.04
+    python3 reprocess_pcd.py combined_<timestamp>.pcd --grid-size 0.01
+    python3 reprocess_pcd.py combined_<timestamp>.pcd --no-map-overlay
 
 주의: 이 스크립트는 params.yaml을 surface_profiler.py와 완전히 동일한
 방식(ament_index_python 우선, 실패 시 상대경로 폴백)으로 읽음.
 즉 "params.yaml을 고쳤는데 반영이 안 되는 것 같다"는 의심이 들 때,
 이 스크립트로 재실행해서 나오는 값(아래 [*] Config values 출력)이
-곧 실제 파이프라인이 쓰는 값과 100% 동일함 — 값이 여기서도 예전
-그대로라면 params.yaml 수정 자체가 반영 안 된 것이고(경로 오타,
-colcon build 누락 등), 여기서는 새 값인데 실제 주행 결과만 예전
-같다면 그건 다른 원인(캐시된 install 바이너리 실행 등)임.
+곧 실제 파이프라인이 쓰는 값과 100% 동일함.
 """
 
 import os
@@ -70,7 +67,7 @@ def main():
     )
     parser.add_argument(
         "pcd_filename",
-        help="pointcloud_dir 안에 있는 pcd 파일명 (예: combined_2026-07-10_23-54-47.pcd). "
+        help="pointcloud_dir 안에 있는 pcd 파일명 (예: combined_<timestamp>.pcd). "
              "절대/상대 경로를 직접 줘도 됨.",
     )
     parser.add_argument("--z-min", type=float, default=None, help="params.yaml의 z_min을 이번 실행에서만 덮어씀 (m)")
@@ -86,14 +83,14 @@ def main():
     )
     parser.add_argument(
         "--eval-label", type=str, default=None,
-        help="EVAL.md 실험 라벨 - 주어지면 pcd/맵을 workspace_root 대신 eval_runs/<라벨>/ "
+        help="실험 라벨 - 주어지면 pcd/맵을 workspace_root 대신 eval_runs/<라벨>/ "
              "아래 자기완결 폴더(run_generation_pipeline.py --snapshot-label로 만든)에서 찾음"
     )
     args = parser.parse_args()
 
     workspace_root, profiling_cfg = load_config()
     # --eval-label이 주어지면 analyze_coverage_comparison.py와 동일하게
-    # eval_runs/<라벨>/ 자기완결 폴더를 기준으로 삼음(EVAL.md 참고).
+    # eval_runs/<라벨>/ 자기완결 폴더를 기준으로 삼음.
     output_root = os.path.join(workspace_root, 'eval_runs', args.eval_label) if args.eval_label else workspace_root
 
     pointcloud_dir = resolve_pointcloud_dir(output_root, profiling_cfg)
@@ -123,7 +120,7 @@ def main():
         # [핵심] surface_profiler.py의 _resolve_directories()와 완전히 동일한
         # resolve_map_yaml_path()를 그대로 사용 -> 두 스크립트가 절대 어긋나지 않음.
         # --eval-label이 있으면 output_root(eval_runs/<라벨>/)의 자기완결 맵
-        # 복사본을 쓰고, 없으면 기존처럼 workspace_root를 그대로 씀.
+        # 복사본을 쓰고, 없으면 평소처럼 workspace_root를 그대로 씀.
         map_yaml_path = resolve_map_yaml_path(output_root, profiling_cfg)
         if map_yaml_path is not None and not os.path.exists(map_yaml_path):
             print(f"[!] Warning: map_yaml_path가 설정되었으나 파일을 찾을 수 없습니다: {map_yaml_path}")

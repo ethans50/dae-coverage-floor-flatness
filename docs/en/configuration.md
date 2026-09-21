@@ -10,7 +10,7 @@ All pipeline settings live in a single file, [`config/params.yaml`](../../config
 
 | Key | Section | Meaning |
 |---|---|---|
-| `dae_file` | `environment_modeling` | Which model to process. Change `worlds/coverage_flatness_env.world` to match if you simulate. |
+| `dae_file` | `environment_modeling` | Which model to process. The simulated building follows this value. |
 | `target_resolution` | `environment_modeling` | Map resolution, m/px. Smaller is finer and slower. |
 | `max_door_radius` | `environment_modeling` | Half the widest opening still treated as a door. |
 | `max_aspect_ratio` | `environment_modeling` | Above this, a node is subdivided (Step 5). |
@@ -24,6 +24,7 @@ All pipeline settings live in a single file, [`config/params.yaml`](../../config
 | `z_min`, `z_max` | `surface_profiling` | Floor extraction window (m). Must span both sides of the design floor level. |
 | `grid_size` | `surface_profiling` | Analysis cell size for completeness and the heatmap. |
 | `save_raw_pcd`, `save_combined_csv`, `save_waypoint_pcd` | `surface_profiling` | Optional bulky artefacts, off by default. |
+| `save_frame_log`, `save_accumulation_video` | `surface_profiling` | Per-frame log (`pointclouds/frames/frames_*.npz`) and a top-down accumulation video of the floor points; on by default for debugging point-cloud coverage. `frame_log_z_min/max` and `video_*` tune them. |
 
 Hardware-coupled constants (`lidar_mount_height`, `robot_width`, `boundary_repass_distance_m`) **must be re-measured** if the sensor is remounted or the robot is replaced.
 
@@ -44,7 +45,7 @@ Values in [`config/params.yaml`](../../config/params.yaml) that are easy to get 
 | `voxel_size`, `grid_size` | `voxel_size` is the downsampling pitch at save time; `grid_size` is the analysis cell for completeness and the heatmap. A `voxel_size` larger than `grid_size` leaves cells that can never receive a point, lowering completeness. | None |
 | `boundary_repass_distance_m` | Must be **at least twice** the blind radius. It is clamped automatically when a segment is shorter, but a value that is too small leaves the boundary region unfilled. | None |
 | `lidar_mount_height` | Enter the measured value. The blind radius and node width classification are derived from it. | None |
-| `dae_file` | For simulation, `worlds/coverage_flatness_env.world` must reference the same model. | None |
+| `dae_file` | The simulated building follows this value. `models/` must hold a Gazebo model named after the file stem; without it the simulation launch aborts. | Refuses to start |
 | `save_raw_pcd` | Enable only for the per-cell z standard deviation (noise) metric; it substantially increases per-run storage. | — |
 | `is_sim` (launch argument) | Defaults to `false`, and `use_sim_time` follows it. Omitting it in simulation makes the nodes use the system clock instead of Gazebo's. Give the measurement node and the executor the same value. | None |
 

@@ -1,15 +1,15 @@
 # mission_generation/mission_planning/path_exporter.py
 """
-계획이 끝난 px 단위 경로를 미터 좌표로 옮겨 디스크에 내보내는 단계.
+planning이 끝난 px 단위 경로를 미터 좌표로 옮겨 디스크에 내보내는 단계.
 
 `MissionPlanner.plan()`의 마지막 단계를 담당함 - translator로 픽셀→미터 변환,
 sampler로 일정 간격 재샘플링, `raw_path.json`/`final_path.json`/
 `final_path_meta.json` 저장, 그리고 디버그 이미지 위 웨이포인트 오버레이.
 
-`final_path_meta.json`은 계획 시점에 실제로 쓴 파라미터의 사이드카 스냅샷임 -
-실행 시점(`mission_executor.py`)의 `params.yaml` 값과 어긋나면 계획된 transit
+`final_path_meta.json`은 planning 시점에 실제로 쓴 파라미터의 사이드카 스냅샷임 -
+실행 시점(`mission_executor.py`)의 `params.yaml` 값과 어긋나면 planning된 transit
 시작점과 실제 로봇 위치가 조용히 달라지므로, 미션 시작 시 자동 대조해
-불일치하면 즉시 중단시킴(`_verify_plan_meta`, HISTORY.md §2 참고).
+불일치하면 즉시 중단시킴(`_verify_plan_meta`).
 
 planner 객체를 그대로 받아 읽기만 함(역방향 호출 없음) - 넘겨야 할 스칼라가
 10개가 넘어 인자로 풀어쓰는 것보다 결합도가 낮음.
@@ -73,13 +73,12 @@ def export(planner, output_dir, save_debug=True):
 
     # final_path.json 자체가 이 값들(특히 boundary_repass_distance_m/
     # enable_boundary_repass, _compute_repass_adjusted_exit 참고)에
-    # 기하학적으로 의존하므로, 계획 시점과 실행 시점(mission_executor.py가
-    # params.yaml에서 직접 읽음)의 값이 어긋나면 계획된 transit 시작점과
-    # 실제 repass 후 로봇 위치가 조용히 달라짐 - 계획 시점에 실제로 쓴
+    # 기하학적으로 의존하므로, planning 시점과 실행 시점(mission_executor.py가
+    # params.yaml에서 직접 읽음)의 값이 어긋나면 planning된 transit 시작점과
+    # 실제 repass 후 로봇 위치가 조용히 달라짐 - planning 시점에 실제로 쓴
     # 값을 사이드카 파일로 남겨서 mission_executor.py가 시작 시 자기
     # params.yaml 값과 자동 대조하게 함(다르면 다른 CRITICAL ERROR들과
-    # 동일하게 즉시 중단 - _load_final_path 참고, 도입 경위는 HISTORY.md
-    # §2 참고).
+    # 동일하게 즉시 중단 - _load_final_path 참고).
     meta_output_file = os.path.join(output_dir, "final_path_meta.json")
     plan_meta = {
         'robot_width': planner.robot_width,
@@ -88,7 +87,7 @@ def export(planner, output_dir, save_debug=True):
         'enable_boundary_repass': planner.enable_boundary_repass,
         'map_resolution': planner.map_resolution,
         'blind_radius_m': planner.blind_radius_m,
-        # 아래 5개는 실행 시 참조/대조되지 않음(순수 계획 단계 좌표
+        # 아래 5개는 실행 시 참조/대조되지 않음(순수 planning 단계 좌표
         # 생성에만 관여) - ablation 실험 시 이 final_path.json이 어떤
         # 토글 조합으로 생성됐는지 추적하기 위한 기록용 메타데이터.
         'enable_pendant_reorder': planner.enable_pendant_reorder,

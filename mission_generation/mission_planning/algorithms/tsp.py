@@ -70,9 +70,7 @@ def solve_tsp_sequence(nodes, global_mask):
 
         connection_widths_px (dict): (i, j) 노드 쌍 -> 연결부 로컬 통과 폭(px).
         connection_masks (dict): (i, j) 노드 쌍 -> 해당 연결부의 dilated_overlap 마스크.
-            둘 다 노드 자체는 넓어도 연결부(문지방 등)가 좁은 경우를 보완(assist_mask)하기
-            위해 도입됐던 값인데, 그 보완 로직 자체가 실측 검증 후 불필요함이 확인되어
-            제거됨(HISTORY.md §2 참고) - mission_planner.py는 현재 이 두 값을
+            현재는 호환용으로만 반환함 - mission_planner.py는 이 두 값을
             `_connection_widths_px`/`_connection_masks`로 언패킹만 하고 쓰지 않음.
     """
     # 1. 연결 지점 및 경로 탐색용 마스크 획득

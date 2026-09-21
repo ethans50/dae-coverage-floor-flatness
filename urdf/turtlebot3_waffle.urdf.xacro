@@ -1,4 +1,12 @@
 <?xml version="1.0" ?>
+<!--
+  Derived from turtlebot3_description/urdf/turtlebot3_waffle.urdf in
+  https://github.com/ROBOTIS-GIT/turtlebot3 (Copyright ROBOTIS CO., LTD.),
+  licensed under the Apache License, Version 2.0
+  (http://www.apache.org/licenses/LICENSE-2.0).
+  Modified for dae_coverage_floor_flatness: converted to xacro, and the Gazebo
+  plugins are included from this package's turtlebot3_waffle.gazebo.xacro.
+-->
 <robot name="turtlebot3_waffle" xmlns:xacro="http://ros.org/wiki/xacro">
   <xacro:arg name="namespace" default=""/>
   <xacro:property name="namespace" value="$(arg namespace)"/>

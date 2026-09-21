@@ -1,11 +1,10 @@
 # mission_generation/mission_planning/utils/repass_preview.py
 """
-boundary repass(blind cone 보완)가 만들 지점을 계획 단계에서 px 단위로 근사함.
+boundary repass(blind cone 보완)가 만들 지점을 planning 단계에서 px 단위로 근사함.
 
 실행 측 `mission_execution/utils/boundary_repass.py`의 기하 규칙
-(`_repass_distance_m`/`_offset_pose`)을 그대로 재현함 - 계획과 실행이 같은
+(`_repass_distance_m`/`_offset_pose`)을 그대로 재현함 - planning과 실행이 같은
 지점을 가리켜야 `final_path.json`의 transit 시작점이 실제 로봇 위치와 맞음.
-설계 배경은 DETAILS.md §3, 도입 경위는 HISTORY.md §1/§2 참고.
 
 `compute_adjusted_exit()`는 시각화뿐 아니라 Step3의 `current_pos`와
 `_reorder_pendant_groups`의 허브 anchor에도 쓰여 `final_path.json` 자체를
@@ -33,7 +32,7 @@ def compute_adjusted_exit(raw_points, enable_boundary_repass,
 
     Step3의 current_pos(다음 노드로 가는 transit A*의 실제 시작점)와
     _reorder_pendant_groups의 허브 anchor 양쪽에서 재사용함 - 로봇이
-    실제로 그 위치에서 다음 이동을 시작하므로, 오프라인 계획(및 그
+    실제로 그 위치에서 다음 이동을 시작하므로, 오프라인 planning(및 그
     시각화)도 거기서부터 transit을 그려야 실제 주행과 일치함."""
     if not raw_points:
         return None
@@ -59,7 +58,7 @@ def compute_adjusted_exit(raw_points, enable_boundary_repass,
 
 def build_preview(path_segments, enable_boundary_repass,
                   boundary_repass_distance_m, map_resolution):
-    """미션 실행 시 BoundaryRepassController가 만들 왕복 경로를 계획
+    """미션 실행 시 BoundaryRepassController가 만들 왕복 경로를 planning
     단계에서 근사해 시각화 전용으로 반환함. boundary_repass.py의 기하
     규칙(_offset_pose/_repass_distance_m)을 px 단위로 그대로 재현함.
     path_segments(=실제 final_path.json 원본)는 건드리지 않음.
@@ -68,7 +67,7 @@ def build_preview(path_segments, enable_boundary_repass,
     F2C 스와스 전부(꺾이는 코너 포함)를 이어붙인 좌표 목록이라, 여러
     스와스가 꺾여있는 노드는 path[0]->path[-1] 전체 직선(코너 무시한
     거시적 방향)이 실제 로봇이 그 시작/끝 지점에서 나아가는 방향과 전혀
-    다를 수 있음(발견 경위는 HISTORY.md §2 참고). mission_executor.py의
+    다를 수 있음. mission_executor.py의
     실제 run_start_prepass/run_exit_repass는 heading 변화 기준으로
     분할된 sub-segment(첫/마지막 직선 다리 하나)만 넘겨받으므로 이 문제가
     없음 - 여기서도 동일하게 첫 다리(path[0]->path[1])/마지막 다리

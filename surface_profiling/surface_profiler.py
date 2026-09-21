@@ -17,6 +17,8 @@ try:
     from utils.heatmap_generator import generate_floor_heatmap
     from utils.pcd_io import export_pcd_to_csv
     from utils.stall_report_analyzer import analyze_and_visualize_stalls
+    from utils.frame_recorder import FrameRecorder
+    from utils.frame_video import render_accumulation_video
     from utils.config_paths import (
         load_full_config as _load_full_config_shared,
         resolve_pointcloud_dir,
@@ -30,6 +32,8 @@ except ImportError:
     from surface_profiling.utils.heatmap_generator import generate_floor_heatmap
     from surface_profiling.utils.pcd_io import export_pcd_to_csv
     from surface_profiling.utils.stall_report_analyzer import analyze_and_visualize_stalls
+    from surface_profiling.utils.frame_recorder import FrameRecorder
+    from surface_profiling.utils.frame_video import render_accumulation_video
     from surface_profiling.utils.config_paths import (
         load_full_config as _load_full_config_shared,
         resolve_pointcloud_dir,
@@ -77,7 +81,7 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
 
     params.yaml의 surface_profiling.only_capture_at_waypoints (기본값 True)로 동작을
     전환할 수 있음: True면 정지-캡처 구간의 포인트만 최종 결과에 반영하고(이동 중
-    포인트는 모션 블러 우려로 버림), False면 기존처럼 전 구간을 연속 수집하되
+    포인트는 모션 블러 우려로 버림), False면 평소처럼 전 구간을 연속 수집하되
     지점별 캡처 파일은 부가적으로만 별도 저장함.
 
     부가 기능: 필요 시 PCD를 CSV로 변환하는 보조 유틸(utils.pcd_io)을 제공.
@@ -93,6 +97,8 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
     PCD_FILTERED_FILENAME_TEMPLATE = "combined_filtered_{ts}{suffix}.pcd"
     CSV_FILENAME_TEMPLATE = "combined_{ts}{suffix}.csv"
     HEATMAP_FILENAME_TEMPLATE = "floor_heatmap_{ts}{suffix}.png"
+    FRAME_LOG_FILENAME_TEMPLATE = "frames_{ts}{suffix}.npz"
+    ACCUMULATION_VIDEO_FILENAME_TEMPLATE = "accumulation_{ts}{suffix}.mp4"
     WAYPOINT_PCD_FILENAME_TEMPLATE = "waypoint_{idx:04d}_{ts}.pcd"
 
     def __init__(self):
@@ -150,6 +156,9 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
         self.last_tf_yaw = None
         self.last_tf_stamp = None
 
+        # 프레임 단위 기록(save_frame_log=true일 때만 생성, _load_config()에서 설정).
+        self.frame_recorder = None
+
         # 1. ROS 2 파라미터로 시뮬레이션 모드 여부 확보 (launch argument로 주입됨)
         self._resolve_run_mode()
 
@@ -177,9 +186,9 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
         self.declare_parameter('is_sim', False)
         self.is_sim = self.get_parameter('is_sim').get_parameter_value().bool_value
 
-        # EVAL.md 알고리즘 비교 실험용 - launch argument로 라벨을 주면 이번
+        # 알고리즘 비교 실험용 - launch argument로 라벨을 주면 이번
         # 수집물(pcd/heatmap)을 <workspace_root>/eval_runs/<라벨>/ 아래로 모아
-        # 저장함. 빈 문자열(기본값)이면 기존처럼 flat 경로에 저장함 -
+        # 저장함. 빈 문자열(기본값)이면 평소처럼 flat 경로에 저장함 -
         # _resolve_directories 참고. map_yaml_path(입력, 오버레이용 공유 맵)는
         # 이 라벨과 무관하게 항상 실제 workspace_root를 그대로 씀.
         self.declare_parameter('eval_run_label', '')
@@ -188,7 +197,7 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
         # mission_executor.py(Jetson)와 이 노드(노트북)의 산출물 파일명
         # 타임스탬프를 맞추기 위한 공유 값. 양쪽 launch에 같은 값을 넘기면
         # 자기 collection 시작 시각 대신 이 문자열을 씀. 빈 문자열이면
-        # 기존처럼 자체 time.strftime()을 씀(DETAILS.md §3 참고).
+        # 평소처럼 자체 time.strftime()을 씀.
         self.declare_parameter('run_ts', '')
         self.run_ts_param = self.get_parameter('run_ts').get_parameter_value().string_value
 
@@ -205,12 +214,12 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
             self.set_parameters([Parameter('use_sim_time', Parameter.Type.BOOL, self.is_sim)])
 
     def _load_config(self):
-        # [변경] 경로 해석 로직을 utils.config_paths.load_full_config()로 일원화.
+        # 경로 해석 로직을 utils.config_paths.load_full_config()로 일원화.
         # reprocess_pcd.py는 여전히 load_config()(surface_profiling 섹션만)를 쓰므로
         # 서로 다르게 해석하는 문제는 재발하지 않음. 여기서 load_full_config를
         # 쓰는 이유는 Stage 4(stall 분석)가 mission_execution 섹션(stall_log_dir/
         # output_path_dir 등)도 읽어야 하기 때문 - profiling_cfg는 그대로 전체
-        # config에서 동일하게 잘라내 쓰므로 기존 동작과 차이 없음.
+        # config에서 동일하게 잘라내 쓰므로 기본 동작과 차이 없음.
         self.workspace_root, self._full_config = _load_full_config_shared()
         self.profiling_cfg = self._full_config.get('surface_profiling', {})
         self.mission_exec_cfg = self._full_config.get('mission_execution', {})
@@ -229,17 +238,22 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
             f"max_angular_vel={self.tf_lowpass_max_angular_vel_deg}deg/s"
         )
 
+        if self.profiling_cfg.get('save_frame_log', True):
+            self.frame_recorder = FrameRecorder(
+                z_min=self.profiling_cfg.get('frame_log_z_min', -0.5),
+                z_max=self.profiling_cfg.get('frame_log_z_max', 0.5),
+                store_transit_points=self.profiling_cfg.get('frame_log_store_transit_points', False),
+                only_capture_at_waypoints=self.only_capture_at_waypoints,
+            )
+
     def _resolve_directories(self):
-        # [변경] 경로 조합 로직을 utils.config_paths로 일원화.
-        # 예전에는 여기서 map_yaml_dir을 완전한 파일 경로로 조합해뒀는데,
-        # _run_visualization_stage()가 이를 쓰지 않고 profiling_cfg에서
-        # 원본 값("maps/grid", 폴더명만)을 다시 읽어버려서 서로 어긋나는
-        # 버그가 있었음(HISTORY.md 참고). resolve_map_yaml_path()가 조합한
-        # 값을 self.map_yaml_path에 저장해두고, 아래 단계들이 전부 이
-        # 하나의 값만 참조하도록 통일함.
+        # 경로 조합 로직은 utils.config_paths로 일원화함. profiling_cfg의 원본 값
+        # ("maps/grid" 같은 폴더명만)을 단계마다 다시 읽으면 서로 어긋나므로,
+        # resolve_map_yaml_path()가 조합한 값을 self.map_yaml_path에 저장해두고
+        # 아래 단계들이 전부 이 하나의 값만 참조하도록 함.
         # pointcloud_dir/visualization_dir는 순수 출력 전용이라 라벨이 있으면
         # eval_runs/<라벨> 아래로 리다이렉트해도 안전하지만, map_yaml_path는
-        # 다른 실행(계획 단계)이 만든 공유 입력이라 항상 실제 workspace_root를
+        # 다른 실행(planning 단계)이 만든 공유 입력이라 항상 실제 workspace_root를
         # 그대로 참조해야 함 - 그래서 output_root만 따로 계산해서 씀.
         self.output_root = (
             os.path.join(self.workspace_root, 'eval_runs', self.eval_run_label)
@@ -284,6 +298,7 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
             self.is_aborted = True
 
         suffix = "_aborted" if self.is_aborted else ""
+        self._save_frame_log(suffix)
         pcd_filename = self.PCD_FILENAME_TEMPLATE.format(ts=self.collection_start_ts, suffix=suffix)
         pcd_path = self._save_combined_pcd(pcd_filename=pcd_filename)
 
@@ -293,6 +308,49 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
             sys.exit(1)
 
         return pcd_path
+
+    def _save_frame_log(self, suffix):
+        """프레임 단위 기록(.npz)을 저장함. 실패해도 본 파이프라인에는 영향 없음."""
+        self.frame_log_path = None
+        if self.frame_recorder is None:
+            return
+        try:
+            frame_dir = os.path.join(self.pointcloud_dir, 'frames')
+            os.makedirs(frame_dir, exist_ok=True)
+            path = os.path.join(frame_dir, self.FRAME_LOG_FILENAME_TEMPLATE.format(
+                ts=self.collection_start_ts, suffix=suffix))
+            if self.frame_recorder.save(path):
+                self.frame_log_path = path
+                print(f"[+] Saved frame log ({len(self.frame_recorder)} frames): {path}")
+            else:
+                print("[-] Frame log is empty - nothing saved.")
+        except Exception as e:
+            print(f"[!] Frame log 저장 실패(무시하고 계속): {e}")
+
+    def _run_accumulation_video_stage(self):
+        """프레임 기록으로 누적 영상을 만듦. 실패해도 본 파이프라인에는 영향 없음."""
+        if not getattr(self, 'frame_log_path', None) or not self.profiling_cfg.get('save_accumulation_video', True):
+            return None
+        suffix = "_aborted" if self.is_aborted else ""
+        out_path = os.path.join(self.visualization_dir, self.ACCUMULATION_VIDEO_FILENAME_TEMPLATE.format(
+            ts=self.collection_start_ts, suffix=suffix))
+        cfg = self.profiling_cfg
+        try:
+            print("\n[*] Rendering accumulation video...")
+            result = render_accumulation_video(
+                self.frame_log_path, self.map_yaml_path, out_path,
+                z_min=cfg.get('z_min', -0.005), z_max=cfg.get('z_max', 0.035),
+                z_margin=cfg.get('video_z_margin', 0.12),
+                fps=cfg.get('video_fps', 30),
+                max_video_frames=cfg.get('video_max_frames', 1500),
+                max_dim_px=cfg.get('video_max_dim_px', 1600),
+            )
+            if result:
+                print(f"[+] Saved accumulation video: {result}")
+            return result
+        except Exception as e:
+            print(f"[!] 누적 영상 생성 실패(무시하고 계속): {e}")
+            return None
 
     def _save_combined_pcd(self, pcd_filename):
         """누적된 포인트들을 다운샘플링 후 단일 PCD 파일로 저장하고 경로를 반환함."""
@@ -352,10 +410,9 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
         # 동일한 값을 쓰는 것을 권장 (필터링 범위 = 색상 표현 범위).
         z_min = self.profiling_cfg.get('z_min', -0.005)
         z_max = self.profiling_cfg.get('z_max', 0.035)
-        # [수정] profiling_cfg.get('map_yaml_dir', ...)로 다시 읽으면 폴더명만
-        # 있는 미완성 값("maps/grid")이 그대로 들어가 파일을 못 찾는 버그가
-        # 있었음. _resolve_directories()가 이미 완전한 파일 경로로 조합해둔
-        # self.map_yaml_path 하나만 참조하도록 통일.
+        # profiling_cfg.get('map_yaml_dir', ...)는 폴더명만 있는 미완성 값이라
+        # 쓰지 않고, _resolve_directories()가 완전한 파일 경로로 조합해둔
+        # self.map_yaml_path 하나만 참조함.
         map_yaml_path = self.map_yaml_path
         suffix = "_aborted" if self.is_aborted else ""
         img_filename = self.HEATMAP_FILENAME_TEMPLATE.format(ts=self.collection_start_ts, suffix=suffix)
@@ -381,7 +438,7 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
 
         save_combined_csv가 false면 건너뜀 - 1회당 약 354MB라 반복 측정
         캠페인에서 디스크를 가장 빨리 잡아먹는 산출물이고, 내용 자체는
-        combined_*.pcd와 동일함(HISTORY.md §24)."""
+        combined_*.pcd와 동일함."""
         if not self.profiling_cfg.get('save_combined_csv', False):
             print("[*] save_combined_csv=false - CSV 내보내기를 건너뜀.")
             return None
@@ -404,7 +461,7 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
         if hasattr(self, 'tf_listener'):
             # spin_thread=False(기본값)이므로 별도 백그라운드 스레드가 없음.
             # tf 구독 정리만 하면 되고, join으로 기다려야 할 스레드가 없어
-            # 이전에 있었던 ExternalShutdownException 레이스 컨디션도 없음.
+            # 종료 시 ExternalShutdownException 레이스 컨디션도 생기지 않음.
             self.tf_listener.unregister()
         self.spin_executor.remove_node(self)
         self.destroy_node()
@@ -424,6 +481,7 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
         # 같은 eval_runs/<라벨> 아래에 저장하므로, 여기도 workspace_root가 아니라
         # self.output_root를 넘겨야 서로 어긋나지 않음.
         analyze_and_visualize_stalls(self.output_root, self.mission_exec_cfg)
+        video_path = self._run_accumulation_video_stage()
 
         print("\n=======================================================")
         if self.is_aborted:
@@ -433,6 +491,7 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
         print(f"    -> Raw PCD: {pcd_path}")
         print(f"    -> Filtered PCD: {filtered_pcd_path}")
         print(f"    -> Heatmap Image: {img_out_path}")
+        print(f"    -> Accumulation Video: {video_path if video_path else 'skipped'}")
         print(f"    -> CSV Export: {csv_path if csv_path else 'skipped (save_combined_csv=false)'}")
         print("=======================================================\n")
 

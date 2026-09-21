@@ -5,7 +5,7 @@
 
 `tsp.py`의 Christofides 근사는 F2C 스와스가 생기기 전 노드 중심점 거리만 보므로,
 "중앙 복도 하나에 방 여러 개가 매달린" 구조에서 각 방의 문이 허브의 실제 exit에서
-얼마나 가까운지를 반영하지 못함. 도입 경위와 정량 효과는 HISTORY.md §2 참고.
+얼마나 가까운지를 반영하지 못함.
 
 `mission_planner.py`가 Step2.5에서 호출함 - bucket/safe_node_mask가 채워진 직후라야
 허브의 스와스를 생성해 exit 좌표를 알 수 있기 때문에 그 시점에만 호출 가능함.
@@ -25,8 +25,7 @@ def reorder(tsp_sequence, detailed_sequence, node_waypoints, nodes,
     {1,4,5,6})에서는 각 pendant 노드의 실제 연결 지점(waypoint)이
     허브의 실제 coverage 종료 지점(entry_hint에 의해서만 정해짐 -
     exit_hint는 고려하지 않음, order_swaths_by_entry 참고)에서 얼마나
-    가까운지를 이 근사가 전혀 반영하지 못함(발견 경위·실측 결과는
-    HISTORY.md §2 참고).
+    가까운지를 이 근사가 전혀 반영하지 못함.
 
     허브 h의 coverage가 확정된 직후(=h의 실제 물리적 exit 좌표를 알 수
     있는 시점), h에 '직접' 연결된(다른 노드를 거치지 않는) pendant

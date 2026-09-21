@@ -15,7 +15,7 @@ The system splits into three roles. One physical machine may take several roles.
 | Role | What it does | Required steps |
 |---|---|---|
 | **Planning** (workstation/laptop, x86_64) | Turns the `.dae` model into `final_path.json`, offline | 0–7 |
-| **Driving** (Jetson Orin Nano on the robot, arm64) | Runs Nav2 and `mission_executor` | 0–4, 6, 9, 10 |
+| **Driving** (Jetson Orin Nano on the robot, arm64) | Runs Nav2 and `mission_executor` | 0–4, 9, 10 |
 | **Sensing** (laptop with the VLP-16 attached, x86_64) | Runs `surface_profiler` | 0–4, 7, 8, 10 |
 
 **Simulation only, single machine?** You need steps 0–8 on that one machine, and you can skip 9 and 10 entirely.
@@ -75,7 +75,9 @@ source install/setup.bash
 
 > **Re-source after every build.** Open a new terminal, or run `source ~/ros2_ws/install/setup.bash`.
 >
-> `install/config` and `install/behavior_trees` are symlinks into `build/`. Editing `params.yaml` or a behavior tree still requires a `colcon build` before it takes effect at runtime.
+> **Always pass `--symlink-install`.** Only then are the config, launch, world and model files under `install/` symlinks back to the sources, so edits to `params.yaml` or a behavior tree take effect without rebuilding.
+>
+> Built without the flag, everything is copied instead, and every parameter change needs another `colcon build`. Adding or renaming a file needs one rebuild either way, because the install manifest itself changes.
 
 ---
 
@@ -195,7 +197,7 @@ The extracted directory name does not always match the archive name — run the 
 
 ## 7. Python dependencies per role
 
-Versions are pinned. Installing these packages unpinned has been observed to change path-generation output between machines, so use the requirements files rather than installing by name.
+Versions are pinned. Installing these packages unpinned can change path-generation output between machines, so use the requirements files rather than installing by name.
 
 **Planning role:**
 

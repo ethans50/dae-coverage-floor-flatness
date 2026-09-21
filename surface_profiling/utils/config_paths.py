@@ -2,7 +2,7 @@
 """
 params.yaml의 상대 경로/폴더명 값들을 실제 파일 시스템 절대 경로로 조합하는
 로직을 한 곳에 모아둠 - surface_profiler.py/reprocess_pcd.py가 서로 다르게
-조합해서 생겼던 과거 버그(HISTORY.md 참고) 재발 방지를 위해, 경로 조합이
+조합해서 경로가 어긋나는 것을 막기 위해, 경로 조합이
 필요한 곳은 전부 이 모듈의 함수를 통해서만 함.
 """
 
@@ -82,7 +82,7 @@ def resolve_map_yaml_path(workspace_root, profiling_cfg, map_filename="map_from_
     workspace_root와 결합하고 실제 yaml 파일명까지 붙여 완전한 절대 경로로 만듦.
 
     params.yaml에 map_yaml_dir 키가 아예 없으면 None을 반환함
-    (맵 오버레이 없이 히트맵만 단독 생성하는 기존 동작 유지).
+    (맵 오버레이 없이 히트맵만 단독 생성하는 기본 동작 유지).
     """
     rel_map_dir = profiling_cfg.get('map_yaml_dir', None)
     if rel_map_dir is None:

@@ -6,7 +6,7 @@ coverage/transit 구간별로 nav2 제어 방식을 바꾸는 유틸.
 쓸지), (2) controller_server의 속도/회전 임계 파라미터. yaml 정적값은 재시작
 없이는 못 바꾸므로 (2)는 `/controller_server/set_parameters`로 실행 중에
 전환함. coverage/transit이 서로 다른 컨트롤러를 쓰는 구조 자체는
-DETAILS.md §3, 도입 경위는 HISTORY.md §23 참고.
+실주행 중 DWB가 경로를 벗어나 지름길로 붙는 문제를 피하기 위한 것임.
 """
 
 import os
@@ -26,12 +26,12 @@ def transit_bt_path(kind):
 
     이 BT들은 nav2 기본 BT와 딱 두 가지만 다름 - controller_id가
     FollowPathTransit(Regulated Pure Pursuit)이고, through_poses 쪽은
-    RemovePassedGoals radius가 0.3임(HISTORY.md §22/§23). coverage 구간은
+    RemovePassedGoals radius가 0.3임. coverage 구간은
     이 함수를 쓰지 않고 기본 BT(DWB)를 그대로 써서 측정 구간의 제어 거동을
     그대로 유지함.
 
     파일을 못 찾으면 빈 문자열을 돌려줌 - nav2는 빈 값이면 기본 BT를 쓰므로,
-    빌드가 덜 된 상황에서도 미션이 죽지 않고 기존 동작으로 떨어짐.
+    빌드가 덜 된 상황에서도 미션이 죽지 않고 기본 동작으로 떨어짐.
     """
     global _bt_dir
     if _bt_dir is None:
@@ -76,7 +76,7 @@ class ControllerSwitcher:
 
         transit이 RPP 전용 BT를 쓰게 된 뒤로 transit 쪽 값은 실주행에 영향이
         없지만, BT 파일을 못 찾아 기본 BT(DWB)로 폴백하는 경우를 위해 호출은
-        그대로 둠(HISTORY.md §23).
+        그대로 둠.
         """
         if mode == self._current_angular_mode:
             return True
@@ -94,11 +94,11 @@ class ControllerSwitcher:
         """
         주행 속도를 coverage/transit에 따라 바꿈. coverage(측정 정밀도가 검증된
         구간)는 0.16m/s를 유지하고, transit(캡처 없이 이동만 하는 구간)은 TB3
-        Waffle 모터 스펙상 최대 선속도까지 올려 총 소요시간을 줄임(HISTORY.md §21).
+        Waffle 모터 스펙상 최대 선속도까지 올려 총 소요시간을 줄임.
 
         건드리는 파라미터가 모드별로 다름 - coverage는 DWB의
         `FollowPath.max_vel_x`/`max_speed_xy`, transit은 RPP의
-        `FollowPathTransit.desired_linear_vel`임(HISTORY.md §23).
+        `FollowPathTransit.desired_linear_vel`임.
         """
         if mode == self._current_speed_mode:
             return True

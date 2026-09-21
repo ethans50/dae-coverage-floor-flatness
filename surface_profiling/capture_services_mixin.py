@@ -9,7 +9,7 @@ SurfaceProfiler의 ROS 서비스 서버 담당 믹스인 - mission_executor.py(J
 
 캡처 시작 시 TF 저역통과 기준값(`last_tf_*`)을 리셋하는 것이 중요함 - 리셋하지
 않으면 직전 기준 프레임과의 거리가 통째로 "순간 속도"로 잡혀 캡처 초반 프레임이
-전부 기각됨(HISTORY.md §11).
+전부 기각됨.
 
 믹스인으로 둔 이유는 `tf_sync_mixin.py`와 같음 - `capture_active`,
 `current_waypoint_points`, `stop_requested`, `last_tf_*` 등 SurfaceProfiler의
@@ -79,7 +79,7 @@ class CaptureServicesMixin:
     def _handle_start_waypoint_capture(self, request, response):
         # 방어 코드: start/stop은 항상 쌍으로 불리는 게 프로토콜상 전제지만,
         # 혹시 stop 없이 start가 재호출되면 미저장 포인트를 버리지 않고
-        # 먼저 flush함(HISTORY.md §7 참고).
+        # 먼저 flush함.
         if self.capture_active and self.current_waypoint_points:
             print(f"[!] Warning: start_waypoint_capture re-invoked while capture "
                   f"#{self.waypoint_capture_counter} was still active - flushing pending buffer first.")
@@ -97,7 +97,7 @@ class CaptureServicesMixin:
         # 것이었어도 지금부터는 리셋하는 게 안전함. 안 그러면 그 사이의
         # 실제 이동 거리가 통째로 "순간 속도"로 계산되어 임계치를 넘고,
         # "통과한 프레임에서만 기준 갱신" 규칙 때문에 몇 초간 모든 프레임이
-        # 기각됨(HISTORY.md §11 참고).
+        # 기각됨.
         self.last_tf_translation = None
         self.last_tf_yaw = None
         self.last_tf_stamp = None

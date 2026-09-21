@@ -6,7 +6,7 @@ analytics/logs/stall_report_<mission_start_ts>.csv를, 같은 미션의 실제 �
 "어디서, 얼마나, 왜" 지연됐는지 한눈에 보이는 시각화 + 짧은 텍스트 요약을 만듦.
 
 mission_execution 패키지의 클래스를 import하지 않고 두 CSV의 문서화된 컬럼
-포맷만 직접 파싱함 - 도입 배경은 HISTORY.md §5 참고.
+포맷만 직접 파싱함.
 
 호출 시점: surface_profiler.py의 run()이 히트맵(Stage 3)까지 만든 직후(Stage 4).
 이 시점이면 mission_executor.py가 이미 미션을 끝내고 stall_report/robot_path

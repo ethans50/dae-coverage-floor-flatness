@@ -2,19 +2,19 @@
 """
 surface_profiling/analyze_coverage_comparison.py
 
-EVAL.md의 커버리지 알고리즘 비교(baseline 및 leave-one-out ablation 조합)
+커버리지 알고리즘 비교(baseline 및 leave-one-out ablation 조합)
 실험용 분석 도구임. 재주행 없이 이미 저장된
 combined_*.pcd(+선택적으로 combined_raw_*.pcd, robot_path_*.csv,
 drive_debug_*.csv)만 입력받아 지표를 계산함 - reprocess_pcd.py와 동일하게
 params.yaml을 그대로 재사용하고 실측 데이터만 반복 재처리하는 컨벤션을 따름.
 
-계산하는 지표(EVAL.md §4):
+계산하는 지표:
     1. 완전성(completeness): 유효 바닥 영역(2D 맵의 free-space) 대비
        데이터가 있는 grid_size 셀 비율. combined_*.pcd(다운샘플본)로 계산함.
     2. gap: 완전성의 보완 지표 - 미측정 셀 개수/면적.
     3. 셀당 z-표준편차(측정 노이즈)/셀당 리턴 수: combined_raw_*.pcd(다운샘플
        이전)가 있을 때만 계산함 - 다운샘플된 PCD는 셀당 최대 1점이라 이
-       지표를 낼 수 없음(HISTORY.md §8 참고).
+       지표를 낼 수 없음.
     4. 거리/시간: robot_path_*.csv(timestamp,x,y)에서 계산함.
     5. 회전량(근사): drive_debug_*.csv의 yaw_deg 컬럼으로 근사함 -
        robot_path_*.csv에는 orientation 컬럼이 없어 정확한 회전량을 낼 수
@@ -26,11 +26,11 @@ params.yaml을 그대로 재사용하고 실측 데이터만 반복 재처리하
        때문에 크게 흔들려 조합 간 비교가 어렵기 때문임.
 
 사용법:
-    python3 analyze_coverage_comparison.py combined_2026-09-01_21-06-23.pcd
-    python3 analyze_coverage_comparison.py combined_2026-09-01_21-06-23.pcd \\
-        --raw-pcd combined_raw_2026-09-01_21-06-23.pcd \\
+    python3 analyze_coverage_comparison.py combined_<timestamp>.pcd
+    python3 analyze_coverage_comparison.py combined_<timestamp>.pcd \\
+        --raw-pcd combined_raw_<timestamp>.pcd \\
         --robot-path robot_path_1785493611.csv \\
-        --drive-debug drive_debug_2026-09-01_21-00-00.csv \\
+        --drive-debug drive_debug_<timestamp>.csv \\
         --stall-report stall_report_1785493611.csv
 """
 
@@ -89,10 +89,10 @@ def _resolve_input_path(filename, base_dir):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="EVAL.md 커버리지 알고리즘 3-way 비교용 지표 계산 도구 (재주행 불필요)"
+        description="커버리지 알고리즘 3-way 비교용 지표 계산 도구 (재주행 불필요)"
     )
     parser.add_argument("pcd_filename", help="pointcloud_dir 안의 다운샘플 combined_*.pcd (완전성/gap 계산용)")
-    parser.add_argument("--eval-label", type=str, default=None, help="EVAL.md 실험 라벨 - 주어지면 pcd/csv/map을 workspace_root 대신 eval_runs/<라벨>/ 아래 자기완결 폴더(run_generation_pipeline.py --snapshot-label로 만든)에서 찾음")
+    parser.add_argument("--eval-label", type=str, default=None, help="실험 라벨 - 주어지면 pcd/csv/map을 workspace_root 대신 eval_runs/<라벨>/ 아래 자기완결 폴더(run_generation_pipeline.py --snapshot-label로 만든)에서 찾음")
     parser.add_argument("--raw-pcd", type=str, default=None, help="pointcloud_dir 안의 combined_raw_*.pcd (셀당 z-표준편차/리턴 수 계산용, save_raw_pcd=true로 수집한 경우만 존재)")
     parser.add_argument("--robot-path", type=str, default=None, help="mission_execution.output_path_dir 안의 robot_path_*.csv (거리/시간 계산용)")
     parser.add_argument("--drive-debug", type=str, default=None, help="mission_execution.drive_debug_log_dir 안의 drive_debug_*.csv (회전량 근사용)")
@@ -112,8 +112,7 @@ def main():
     # mission_execution.launch.py·surface_profiling.launch.py eval_run_label:=
     # 로 만들어둔 자기완결 폴더(eval_runs/<라벨>/)에서 전부 찾음 - 나중에
     # workspace_root의 flat 경로가 다른 실행으로 덮어써져도 이 폴더 하나만
-    # 있으면 그때 그 알고리즘의 결과를 그대로 재현 분석할 수 있음(EVAL.md
-    # §6/§7 데이터 정합성 문제 참고).
+    # 있으면 그때 그 알고리즘의 결과를 그대로 재현 분석할 수 있음.
     output_root = os.path.join(workspace_root, 'eval_runs', args.eval_label) if args.eval_label else workspace_root
 
     pointcloud_dir = resolve_pointcloud_dir(output_root, profiling_cfg)
@@ -165,11 +164,11 @@ def main():
         sys.exit(1)
 
     # 완전성 분모로 쓸 커버리지 노드 마스크. eval_run 스냅샷마다 같은 위치에
-    # 저장되므로 map_yaml과 같은 output_root 기준으로 찾음(HISTORY.md §24).
+    # 저장되므로 map_yaml과 같은 output_root 기준으로 찾음.
     topology_npz_path = os.path.join(output_root, 'maps', 'topology', 'final_topological_map.npz')
     if not os.path.exists(topology_npz_path):
         print(f"[!] Warning: topology npz not found at {topology_npz_path} - "
-              "완전성 분모를 맵 전체 free-space로 폴백함(과소평가됨, HISTORY.md §24 참고).")
+              "완전성 분모를 맵 전체 free-space로 폴백함(과소평가됨).")
         topology_npz_path = None
 
     print("[*] Config values in use:")

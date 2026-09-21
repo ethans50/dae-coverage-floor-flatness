@@ -5,10 +5,10 @@
 `analyze_coverage_comparison.py`(CLI)가 입력 경로를 정리해 넘겨주면 여기서
 완전성/gap/셀당 z-표준편차/셀당 리턴 수와 거리·시간·회전량을 계산함. 로봇이나
 ROS에 의존하지 않아 이미 저장된 데이터만으로 반복 재계산 가능함 - 지표 정의가
-바뀌어도 `combined_*.pcd`만 있으면 재주행이 필요 없는 구조임(DETAILS.md §3).
+바뀌어도 `combined_*.pcd`만 있으면 재주행이 필요 없는 구조임.
 
-지표 정의는 EVAL.md §4, 완전성 분모를 맵 전체가 아닌 커버리지 노드 합집합으로
-바꾼 경위는 HISTORY.md §24 참고.
+완전성의 분모는 맵 전체 free-space가 아니라 커버리지 노드의 합집합임(transit 전용
+영역은 설계상 측정하지 않기 때문).
 """
 
 import os
@@ -74,8 +74,7 @@ def _load_target_area_mask(topology_npz_path, free_mask):
     완전성의 분모를 맵 전체 free-space로 두면, 애초에 측정 대상이 아닌
     영역(노드로 분할되지 않은 복도 등 - transit은 전부 record_pcd=False라
     설계상 측정하지 않음)까지 분모에 들어가 완전성이 구조적으로 과소평가됨.
-    (맵 전체 free-space 기준으로는 모든 노드를 완벽히 채워도 상한이 약 30%임
-    - HISTORY.md §24 참고.)
+    (맵 전체 free-space 기준으로는 모든 노드를 완벽히 채워도 상한이 약 30%임.)
     """
     if topology_npz_path is None or not os.path.exists(topology_npz_path):
         return None
@@ -99,8 +98,7 @@ def _load_target_area_mask(topology_npz_path, free_mask):
 
 def compute_coverage_metrics(pcd_path, raw_pcd_path, map_yaml_path, z_min, z_max, grid_size,
                              topology_npz_path=None):
-    """완전성/gap/셀당 z-표준편차/셀당 리턴 수 지표를 계산해 dict로 반환함
-    (EVAL.md §4 참고).
+    """완전성/gap/셀당 z-표준편차/셀당 리턴 수 지표를 계산해 dict로 반환함.
 
     pcd_path(다운샘플본)로 완전성/gap을 계산하고, raw_pcd_path(선택,
     다운샘플 이전 원본)가 주어지면 셀당 다중 리턴 수/z-표준편차도 계산함.
@@ -128,7 +126,7 @@ def compute_coverage_metrics(pcd_path, raw_pcd_path, map_yaml_path, z_min, z_max
     total_valid_cells = int(analysis_free.sum())
 
     # 완전성의 기본 분모는 '측정 대상 영역'(커버리지 노드 합집합)임. 토폴로지를
-    # 못 찾으면 예전처럼 맵 전체 free-space로 폴백함(HISTORY.md §24).
+    # 못 찾으면 맵 전체 free-space로 폴백함.
     target_mask_full = _load_target_area_mask(topology_npz_path, free_mask)
     if target_mask_full is not None:
         analysis_target = target_mask_full[np.ix_(row_idx, col_idx)].T
@@ -164,8 +162,8 @@ def compute_coverage_metrics(pcd_path, raw_pcd_path, map_yaml_path, z_min, z_max
     covered_cell_count = int(covered_and_target.sum())
     completeness_ratio = covered_cell_count / total_target_cells if total_target_cells > 0 else 0.0
 
-    # 맵 전체 free-space 기준값도 함께 남김 - 과거 결과가 전부 이 기준이라
-    # 비교가 가능해야 함(EVAL.md §16 참고).
+    # 맵 전체 free-space 기준값도 함께 남김 - 이 기준으로 계산된
+    # 맵 전체 기준으로 계산한 결과와 비교가 가능해야 함.
     covered_mapwide = int((covered & analysis_free).sum())
     completeness_ratio_mapwide = covered_mapwide / total_valid_cells if total_valid_cells > 0 else 0.0
 
@@ -286,7 +284,7 @@ def compute_rotation_from_drive_debug(drive_debug_csv):
     """drive_debug_*.csv의 yaw_deg 컬럼으로 총 회전량(deg)을 근사함 - 정확한
     회전량 컬럼이 robot_path_*.csv에 없어 이걸로 대체하는 근사치임.
     drive_debug_interval_sec(기본 3초) 간격 샘플이라, 그 사이에 벌어지는
-    빠른 회전(제자리 Spin 등)은 과소평가될 수 있음(EVAL.md §5 참고)."""
+    빠른 회전(제자리 Spin 등)은 과소평가될 수 있음."""
     yaws = []
     with open(drive_debug_csv, 'r') as f:
         reader = csv.DictReader(f)

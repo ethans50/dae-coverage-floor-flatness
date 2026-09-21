@@ -113,9 +113,9 @@ controller_server:  # TurtleBot3 Waffle의 실제 모터 스펙상 최대 선속
     failure_tolerance: 1.2
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["goal_checker"]
-    # FollowPath(DWB)는 coverage 구간 전용으로 유지함 - EVAL.md의 9개 조합 ablation 데이터가
+    # FollowPath(DWB)는 coverage 구간 전용으로 유지함 - 알고리즘 비교 실험 데이터가
     # 전부 이 제어 특성으로 수집된 것이라 측정 구간의 거동을 바꾸지 않기 위함.
-    # FollowPathTransit(RPP)은 캡처를 하지 않는 transit 구간 전용임(HISTORY.md §23).
+    # FollowPathTransit(RPP)은 캡처를 하지 않는 transit 구간 전용임.
     controller_plugins: ["FollowPath", "FollowPathTransit"]
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
@@ -134,7 +134,7 @@ controller_server:  # TurtleBot3 Waffle의 실제 모터 스펙상 최대 선속
       debug_trajectory_details: true
       min_vel_x: 0.0      
       min_vel_y: 0.0
-      max_vel_x: 0.16      # 전진 최대 속도 (m/s) - coverage 구간 기본값. transit 구간에서는 mission_executor.py의 _set_speed_limit()이 set_parameters로 0.26(모터 스펙 한계)까지 실행 중에 올림(HISTORY.md §21)
+      max_vel_x: 0.16      # 전진 최대 속도 (m/s) - coverage 구간 기본값. transit 구간에서는 mission_executor.py의 _set_speed_limit()이 set_parameters로 0.26(모터 스펙 한계)까지 실행 중에 올림
       max_vel_y: 0.0
       max_vel_theta: 0.3  # 회전 최대 속도 (rad/s)
       min_speed_xy: 0.0
@@ -160,7 +160,7 @@ controller_server:  # TurtleBot3 Waffle의 실제 모터 스펙상 최대 선속
       theta_stopped_velocity: 0.008
       short_circuit_trajectory_evaluation: true # 무수히 많은 가상 궤적을 평가하던 중, '만점'에 가까운 최고 점수의 궤적을 찾으면 나머지 궤적 평가는 중단하고 즉시 실행.
       stateful: true
-      critics: ["Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"] # RotateToGoal 제거함: yaw_goal_tolerance=3.14(방향 완전 허용)와 모순되어, 목표 근처에서 불필요하게 회전을 우선시하며 속도를 죽여 마지막 수 cm 접근이 오래 걸리는 원인이었음(HISTORY.md §3 참고).
+      critics: ["Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"] # RotateToGoal 미사용: yaw_goal_tolerance=3.14(방향 완전 허용)와 모순되어, 목표 근처에서 불필요하게 회전을 우선시하며 속도를 죽여 마지막 수 cm 접근이 오래 걸리는 원인이 됨.
       BaseObstacle.scale: 0.1 # 장애물 회피 중요도. 높이면 좁은 복도에서 주행을 거부하거나 장애물을 멀리 빙 돌아서 감. 낮추면 장애물에 스치듯 아슬아슬하게 주행.
       PathAlign.scale: 8.0 # 로봇의 머리(방향)가 글로벌 경로(Path) 및 최종 목표(Goal) 방향과 얼마나 일치하는지.높이면 자동차처럼 경로를 따라 부드럽게 앞을 보며 주행함.
       PathAlign.forward_point_distance: 0.1
@@ -174,8 +174,8 @@ controller_server:  # TurtleBot3 Waffle의 실제 모터 스펙상 최대 선속
 
     # transit(캡처 없음) 전용 컨트롤러. DWB가 "경로 추종"이 아니라 "매 순간 점수 최고 궤적 선택"
     # 방식이라 목표가 먼 쪽에 있으면 경로를 벗어나 지름길로 붙는 것이 0.94m 출입구 정체의
-    # 직접 원인이었음(HISTORY.md §22). RPP는 경로 위의 lookahead 점을 따라가므로 구조적으로
-    # 코너를 질러가지 않고, 곡률/장애물 근접도에 따라 속도를 스스로 조절함(HISTORY.md §23).
+    # 직접 원인이었음. RPP는 경로 위의 lookahead 점을 따라가므로 구조적으로
+    # 코너를 질러가지 않고, 곡률/장애물 근접도에 따라 속도를 스스로 조절함.
     FollowPathTransit:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
       desired_linear_vel: 0.26   # transit 목표 속도. TB3 Waffle 모터 스펙 한계이자 velocity_smoother의 max_velocity와 동일
@@ -216,7 +216,7 @@ local_costmap:
       width: 8
       height: 8
       resolution: 0.05
-      footprint: "[[0.08, -0.18], [0.08, 0.18], [-0.21, 0.18], [-0.21, -0.18]]" # 실제 URDF 충돌 형상 기준 사각 footprint임(원형 robot_radius 대신, HISTORY.md §21) - base_link 충돌 박스 0.28x0.28이 x=-0.064만큼 뒤로 치우쳐 있고 바퀴가 y=±0.177까지 튀어나와 원형 근사로는 뒷모서리가 과소평가됨. base_footprint 기준 앞 0.08/뒤 -0.21/좌우 ±0.18(안전 여유 포함).
+      footprint: "[[0.08, -0.18], [0.08, 0.18], [-0.21, 0.18], [-0.21, -0.18]]" # 실제 URDF 충돌 형상 기준 사각 footprint임(원형 robot_radius 대신) - base_link 충돌 박스 0.28x0.28이 x=-0.064만큼 뒤로 치우쳐 있고 바퀴가 y=±0.177까지 튀어나와 원형 근사로는 뒷모서리가 과소평가됨. base_footprint 기준 앞 0.08/뒤 -0.21/좌우 ±0.18(안전 여유 포함).
       plugins: ["obstacle_layer", "inflation_layer"]
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"

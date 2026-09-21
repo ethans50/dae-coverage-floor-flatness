@@ -15,7 +15,6 @@ number_of_recoveries가 그 구간 동안 증가했는지도 함께 기록해서
 _navigate_to_pose_blocking/_navigate_through_poses_blocking, boundary_repass의
 호출 포함)에서 매번 이 클래스를 하나씩 새로 만들어 쓰고, finalize()로 수거한
 이벤트를 MissionExecutor.execute_mission()이 self._stall_events에 누적함.
-도입 배경은 HISTORY.md §4 참고.
 """
 
 import time

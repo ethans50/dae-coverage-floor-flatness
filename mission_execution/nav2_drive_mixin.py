@@ -4,10 +4,10 @@ MissionExecutor의 nav2 액션 래퍼와 정체 복구 escalation을 담은 믹�
 
 Spin/BackUp/NavigateToPose/NavigateThroughPoses 호출과, 그것들이 막혔을 때의
 3단계 escalation(nav2 액션 -> 후진 후 재시도 -> /cmd_vel 직접 발행)이 전부
-여기 있음. 단계별 동작과 안전성 근거는 DETAILS.md §3 참고.
+여기 있음. 각 단계는 앞 단계가 실패하거나 진행 없음이 지속될 때만 넘어감.
 
 믹스인으로 분리한 이유: mission_executor.py 비대화를 막으면서도
-`self._rotate_in_place_to(...)` 같은 기존 호출부(boundary_repass.py 포함)를
+`self._rotate_in_place_to(...)` 같은 다른 곳의 호출부(boundary_repass.py 포함)를
 그대로 두기 위함임 - 별도 협력 객체로 빼면 모든 호출부가 바뀜.
 
 MissionExecutor 쪽에 다음이 있다고 전제함: `navigator`, `spin_executor`,
@@ -67,7 +67,7 @@ class Nav2DriveMixin:
 
         벽에 바짝 붙은 자리에서는 Spin의 사전 충돌 체크(simulate_ahead_time)가
         정지 상태만으로도 걸려 실패하므로, 뒤로 조금 물러나 여유를 만듦.
-        정체 복구 3단계 중 2단계임(DETAILS.md §3 참고).
+        정체 복구 3단계 중 2단계임.
         """
         backup_dist = self.mission_exec_cfg.get('spin_retry_backup_dist_m', 0.15)
         backup_speed = self.mission_exec_cfg.get('spin_retry_backup_speed_mps', 0.05)
@@ -101,8 +101,11 @@ class Nav2DriveMixin:
         폴백 - nav2를 아예 거치지 않고 /cmd_vel을 직접 발행해 제자리 회전시킴.
         costmap 기반 사전 충돌 체크를 하지 않음.
 
-        충돌 체크 없이 돌려도 된다고 보는 근거와 남겨둔 안전장치(AMCL jump 감지,
-        direct_rotate_timeout_sec)는 DETAILS.md §3의 3단계 escalation 표 참고.
+        충돌 체크 없이 돌려도 된다고 보는 근거: 이 단계는 nav2 Spin과 후진 후 재시도를
+        모두 거친 뒤에만 도달하며, 이런 정체는 실제로 공간이 막힌 것이 아니라 사전
+        충돌 체크(simulate_ahead_time)가 경계선에서 과민하게 거부해서 생기는 경우가
+        대부분이기 때문임. 대신 AMCL jump 감지와 direct_rotate_timeout_sec 상한을
+        안전장치로 남겨둠.
         """
         angular_speed = self.mission_exec_cfg.get('direct_rotate_speed_rad_s', 0.3)
         timeout_sec = self.mission_exec_cfg.get('direct_rotate_timeout_sec', 20.0)
@@ -151,8 +154,8 @@ class Nav2DriveMixin:
         때의 최종 폴백 - nav2를 아예 거치지 않고 /cmd_vel을 직접 발행해 현재
         heading 그대로 짧게 직진시킴. costmap 기반 사전 충돌 체크를 하지 않음.
 
-        _direct_cmd_vel_rotate와 같은 근거로 안전하다고 봄(DETAILS.md §3의
-        3단계 escalation 표 참고). 여기에 더해 거리/속도를 짧고 느리게
+        _direct_cmd_vel_rotate와 같은 근거로 안전하다고 봄(정체 복구 3단계 중
+        마지막 단계이며 앞 단계를 모두 거친 뒤에만 도달함). 여기에 더해 거리/속도를 짧고 느리게
         (기본 0.2m @ 0.05m/s) 제한해 실제로 막힌 공간이었을 때의 피해를
         줄이고, AMCL jump 감지와 전체 시간제한을 자체 안전장치로 유지함.
         """
@@ -202,12 +205,12 @@ class Nav2DriveMixin:
         마지막 점(seg_poses[-1])이 아니라 실제로 다음에 주행할 점을 봐야 함.
 
         마지막 점을 조준하면 중간 점들을 건너뛰고 코너를 미리 질러버려,
-        조준선이 통로가 아니라 벽을 향할 수 있음(HISTORY.md §22).
+        조준선이 통로가 아니라 벽을 향할 수 있음.
 
         현재 위치와 거의 겹치는 점을 조준하면 atan2가 노이즈가 되므로
         (coverage sub-segment의 첫 점은 직전 구간 끝점과 같은 좌표일 수 있음),
         rotate_aim_min_dist_m 이상 떨어진 첫 점을 고르고, 그런 점이 없으면
-        기존 동작대로 마지막 점으로 폴백함.
+        기본 동작대로 마지막 점으로 폴백함.
         """
         min_dist = self.mission_exec_cfg.get('rotate_aim_min_dist_m', 0.15)
         current_x, current_y, _ = self._get_current_pose_from_tf()
@@ -234,7 +237,7 @@ class Nav2DriveMixin:
         따라서 "현재 위치 -> target_pose 위치"를 atan2로 직접 계산해서 목표각으로 씀.
 
         실패 시 Spin -> BackUp 후 Spin 재시도 -> _direct_cmd_vel_rotate 순으로
-        에스컬레이션함(DETAILS.md §3 표). 2단계에서 물러난 자리는 사방이 트여
+        에스컬레이션함. 2단계에서 물러난 자리는 사방이 트여
         있으므로 "away 방향"이 아니라 바로 최종 목표각으로 한 번에 회전함 -
         원래 지점으로의 복귀는 다음 구간의 직선 주행이 담당함.
         """
@@ -312,7 +315,7 @@ class Nav2DriveMixin:
         지금 당장 개입하기 위한 추적임. 취소 후 한 번은 후진
         (_backup_for_clearance) 뒤 같은 목표를 재전송함(_retry=True).
         그래도 막히면 세그먼트 실패로 처리함 - 단일 목표 주행에는 3단계
-        (direct cmd_vel) 폴백을 두지 않음(DETAILS.md §3 표 참고).
+        (direct cmd_vel) 폴백을 두지 않음(직선 강행이 회전보다 위험도가 높음).
         """
         self.navigator.goToPose(pose, behavior_tree=behavior_tree)
 
@@ -387,8 +390,8 @@ class Nav2DriveMixin:
 
         진행 없음이 nav_stuck_cancel_sec 이상 지속되면 취소하고,
         goThroughPoses -> _backup_for_clearance 후 재시도 ->
-        _direct_cmd_vel_creep_forward 후 마지막 재시도 순으로 에스컬레이션함
-        (DETAILS.md §3 표 참고). 이마저 막히면 최종 포기.
+        _direct_cmd_vel_creep_forward 후 마지막 재시도 순으로 에스컬레이션함.
+        이마저 막히면 최종 포기.
         """
         self.navigator.goThroughPoses(seg_poses, behavior_tree=behavior_tree)
 

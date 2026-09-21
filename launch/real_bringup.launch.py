@@ -1,5 +1,23 @@
 #!/usr/bin/env python3
-# (라이선스 헤더 생략 가능)
+#
+# Copyright 2019 ROBOTIS CO., LTD.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Authors: Darby Lim
+#
+# Modified for dae_coverage_floor_flatness: turtlebot3_bringup의 robot.launch.py를
+# 바탕으로, 이 패키지의 URDF와 launch만으로 실기체를 띄우도록 고침.
 
 import os
 

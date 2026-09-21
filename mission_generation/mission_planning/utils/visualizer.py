@@ -53,8 +53,7 @@ def _render_full_viz(nodes, path_segments, global_mask, map_resolution=None):
     map_resolution이 주어지면, 실제 로봇을 물리적으로 배치해야 하는 runway
     지점(repass_preview, label_at=0)에 정확한 heading(빨간 화살표)과 가장
     가까운 벽/장애물까지의 거리(cm)를 함께 표시함 - 실주행 시 로봇 배치
-    오차(특히 heading)가 그대로 map->odom TF 오차로 굳어버리는 문제(HISTORY.md
-    §29)를 배치 단계에서 눈으로 확인할 수 있게 함.
+    오차(특히 heading)가 그대로 map->odom TF 오차로 굳어버리는 문제를 배치 단계에서 눈으로 확인할 수 있게 함.
     """
     h, w = global_mask.shape[:2]
     viz_mask = np.zeros((h, w, 3), dtype=np.uint8)
@@ -126,7 +125,7 @@ def _render_full_viz(nodes, path_segments, global_mask, map_resolution=None):
             # 만들 왕복(러닝스타트/되짚기) 예상 경로 - 시안색 화살표로 별도 표시.
             # path[0]=coverage 시작/끝점 또는 runway, path[1]=예상 retrace/p0 지점.
             # 라벨은 두 점 중 "이미 순번이 찍히지 않은, 실제로 새로 알아야 하는
-            # 지점"에 붙여야 하므로 label_at으로 지정함(기본값 1 = 기존 동작 유지).
+            # 지점"에 붙여야 하므로 label_at으로 지정함(기본값 1 = 기본 동작 유지).
             pt0 = tuple(map(int, path[0])); pt1 = tuple(map(int, path[1]))
             cv2.arrowedLine(viz_mask, pt0, pt1, (255, 255, 0), 2, cv2.LINE_AA, tipLength=0.15)
             cv2.circle(viz_mask, pt1, 4, (255, 255, 0), -1)

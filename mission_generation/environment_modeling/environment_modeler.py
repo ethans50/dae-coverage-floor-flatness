@@ -34,7 +34,7 @@ class EnvironmentModeler:
         # .dae 파일이 있으면 매번 2D 맵을 처음부터 재생성함 - 'and not
         # os.path.exists(yaml_path)' 조건은 의도적으로 주석 처리되어 있음(파라미터
         # 하나만 바꿔 재실행해도 노드 개수/연결 구조가 미세하게 달라질 수 있으니
-        # 결과가 크게 다르면 이 재생성 자체를 먼저 의심할 것, CLAUDE.md 참고).
+        # 결과가 크게 다르면 이 재생성 자체를 먼저 의심할 것).
         print(f"--- [Step 1] 2D Map Generation from 3D Model ---")
         if os.path.exists(dae_path): # and not os.path.exists(yaml_path):
             try:

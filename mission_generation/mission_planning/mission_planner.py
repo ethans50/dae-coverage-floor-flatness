@@ -35,25 +35,25 @@ class MissionPlanner:
 
         # mission_execution.boundary_repass_distance_m/enable_boundary_repass와
         # 동일한 값 - 실행 시 BoundaryRepassController가 실제로 로봇을 데려다
-        # 놓을 위치(retrace 지점)를 계획 단계에서도 반영하기 위함
+        # 놓을 위치(retrace 지점)를 planning 단계에서도 반영하기 위함
         # (_compute_repass_adjusted_exit 참고). 이 값은 시각화 미리보기뿐
         # 아니라 Step3의 current_pos(다음 노드로 가는 transit의 실제
         # 시작점)에도 반영되어 self.path_segments/final_path.json 자체를
-        # 바꿈 - 계획-실행 값 불일치 시 위험, 도입 경위는 HISTORY.md §2 참고.
+        # 바꿈 - planning-실행 값 불일치 시 위험.
         self.boundary_repass_distance_m = boundary_repass_distance_m
         self.enable_boundary_repass = enable_boundary_repass
 
         # ablation 실험용 토글 3종 - 각 메커니즘의 기여도를 개별적으로 끄고
-        # 측정하기 위함(EVAL.md 참고). 기본값은 모두 True(현재
+        # 측정하기 위함. 기본값은 모두 True(현재
         # 파이프라인 동작과 동일) - False로 두면 해당 메커니즘 없이 생성했을
         # final_path.json을 얻을 수 있음.
         self.enable_pendant_reorder = enable_pendant_reorder
         self.enable_entry_hint_ordering = enable_entry_hint_ordering
         self.enable_path_simplification = enable_path_simplification
 
-        # EVAL.md 3-way 알고리즘 비교 실험용 토글임. coverage_mode="centroid_only"면
+        # 3-way 알고리즘 비교 실험용 토글임. coverage_mode="centroid_only"면
         # 모든 노드에서 F2C 스와스 생성을 건너뛰어 swath_pairs가 빈 리스트가 되고,
-        # 기존에 이미 있던 "스와스 생성 실패 시 centroid로 폴백"하는 코드 경로
+        # 이미 있는 "스와스 생성 실패 시 centroid로 폴백"하는 코드 경로
         # (_compute_node_raw_points/Step3 인라인 로직)가 그대로 재사용되어 노드
         # 중앙점 1점만 방문하는 경로가 만들어짐 - 새 알고리즘 코드 없이 기존
         # 폴백을 재활용하는 구조임. enable_optimal_swath_angle=False면 wide 노드도
@@ -143,7 +143,7 @@ class MissionPlanner:
         인라인 로직과 _compute_node_raw_points가 공유하는 단일 구현.
         enable_entry_hint_ordering=False면 진입/진출 힌트를 모두 무시하고
         order_swaths_by_entry(swath_pairs, None)의 기본 순서(첫 스와스
-        시작점 기준)를 강제함 - ablation 실험용 토글, HISTORY.md §2 참고."""
+        시작점 기준)를 강제함 - ablation 실험용 토글."""
         if not self.enable_entry_hint_ordering:
             return geometry.order_swaths_by_entry(swath_pairs, None)
         if entry_hint is None:
@@ -272,7 +272,7 @@ class MissionPlanner:
         # 생성할 수 있어 여기(Step2 이후, Step3 이전)에서 수행함. 자세한
         # 이유는 _reorder_pendant_groups 참고.
         # ablation 토글: enable_pendant_reorder=False면 Christofides 근사가
-        # 정한 순서를 그대로 두고 이 국소 재정렬을 건너뜀 (HISTORY.md §2 참고).
+        # 정한 순서를 그대로 두고 이 국소 재정렬을 건너뜀.
         if self.enable_pendant_reorder:
             tsp_sequence, detailed_sequence = self._reorder_pendant_groups(
                 tsp_sequence, detailed_sequence, node_waypoints
@@ -399,7 +399,7 @@ class MissionPlanner:
                 if swath_pairs:
                     # 미션의 첫 coverage 노드는 진입 기준점이 없음 - 대신 다음 노드로
                     # 나가는 출구 방향에 최대한 가깝게 '끝나도록' exit_hint를 역산해
-                    # 넘김(_order_swaths가 통째로 뒤집어 처리, HISTORY.md §2 참고).
+                    # 넘김(_order_swaths가 통째로 뒤집어 처리).
                     exit_hint = None
                     if entry_hint is None:
                         next_node = detailed_sequence[i + 1] if i < len(detailed_sequence) - 1 else None
@@ -474,10 +474,10 @@ class MissionPlanner:
                     coverage_count += 1
                     # 다음 노드로 가는 transit(Leg1)은 F2C 종료 지점이 아니라
                     # exit repass가 끝난 뒤 로봇이 실제로 있을 위치에서
-                    # 시작해야 함 - 안 그러면 오프라인 계획/시각화가 "repass가
+                    # 시작해야 함 - 안 그러면 오프라인 planning/시각화가 "repass가
                     # 없는 것처럼" coverage 끝점에서 곧장 transit이 이어지는
                     # 것으로 그려지는데, 실제로는 그 사이에 되짚기 왕복이 있음
-                    # (도입 경위는 HISTORY.md §2 참고). repass_preview 화살표
+                    # repass_preview 화살표
                     # (_build_boundary_repass_preview)가 raw_points[-1]->이
                     # 지점 구간을 시각적으로 이어줌.
                     current_pos = self._compute_repass_adjusted_exit(raw_points)
@@ -509,7 +509,7 @@ class MissionPlanner:
             output_dir = os.path.join(default_workspace_root, "analytics/metrics")
             print(f"[WARN] 'output_dir' not provided to plan(). Falling back to: {output_dir}")
 
-        # 1. 전역 미션 계획 실행 (Pixel 단위 경로 생성)
+        # 1. 전역 미션 planning 실행 (Pixel 단위 경로 생성)
         self.execute_full_mission()
 
         # 2. 경로 생성 실패 시 예외 처리

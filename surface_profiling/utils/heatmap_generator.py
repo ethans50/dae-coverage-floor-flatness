@@ -29,7 +29,7 @@ def _load_occupancy_map(map_yaml_dir):
     # 1. 원본 이미지 로드
     img = mpimg.imread(image_path)
     
-    # 2. [수정] 행렬의 상하를 반전(Flip Up-Down)시켜 origin='lower' 좌표계와 동기화
+    # 2. 행렬의 상하를 반전(Flip Up-Down)시켜 origin='lower' 좌표계와 동기화
     img = np.flipud(img)
 
     resolution = meta['resolution']
@@ -66,8 +66,8 @@ def generate_floor_heatmap(
         배경으로 깔고 그 위에 히트맵을 반투명 오버레이함. None이면
         히트맵만 단독으로 그림(하위 호환).
 
-    참고: 정규화는 이제 데이터셋 자체의 min/max가 아니라 z_min/z_max로 고정된
-    절대 기준이며, 여전히 건축 표준 규격에 따른 평탄도 허용 오차 기준과는
+    참고: 정규화는 데이터셋 자체의 min/max가 아니라 z_min/z_max로 고정된
+    절대 기준이며, 건축 표준 규격에 따른 평탄도 허용 오차 기준과는
     별개의 표현임에 유의.
     """
     if not os.path.exists(pcd_path):
@@ -94,8 +94,8 @@ def generate_floor_heatmap(
     # 데이터셋 자체 min/max가 아니라, 바닥 평탄도로서 의미 있는
     # 절대 범위(z_min~z_max)로 정규화 + clip. 이렇게 해야 필터링을 뚫고
     # 섞여 들어온 극단값(예: 벽 하단 일부)이 있어도 색 스케일이 왜곡되지 않음.
-    heatmap_clipped = np.clip(heatmap, z_min, z_max)
-    heatmap_norm = (heatmap_clipped - z_min) / (z_max - z_min)
+    # 색은 cm 단위 실제 값으로 칠하고 vmin/vmax로 범위를 고정함 - 컬러바 눈금이 곧 실제 z[cm]임.
+    heatmap_cm = np.clip(heatmap, z_min, z_max) * 100.0
 
     # 히트맵 시각화
     fig, ax = plt.subplots(figsize=(12, 10))
@@ -117,10 +117,12 @@ def generate_floor_heatmap(
             ]
             ax.imshow(map_img, cmap='gray', origin='lower', extent=map_extent, zorder=0)
             im = ax.imshow(
-                heatmap_norm.T,
+                heatmap_cm.T,
                 origin='lower',
                 extent=extent,
                 cmap=cmap,
+                vmin=z_min * 100.0,
+                vmax=z_max * 100.0,
                 interpolation='nearest',
                 alpha=0.75,
                 zorder=1,
@@ -131,24 +133,28 @@ def generate_floor_heatmap(
         else:
             print(f"[!] Warning: map_yaml_dir가 제공되었으나 파일을 찾을 수 없습니다: {map_yaml_dir}")
             im = ax.imshow(
-                heatmap_norm.T,
+                heatmap_cm.T,
                 origin='lower',
                 extent=extent,
                 cmap=cmap,
+                vmin=z_min * 100.0,
+                vmax=z_max * 100.0,
                 interpolation='nearest',
             )
     else:
         print(f"[!] Warning: map_yaml_dir가 제공되지 않았습니다: {map_yaml_dir}")
         im = ax.imshow(
-            heatmap_norm.T,
+            heatmap_cm.T,
             origin='lower',
             extent=extent,
             cmap=cmap,
+                vmin=z_min * 100.0,
+                vmax=z_max * 100.0,
             interpolation='nearest',
             )
 
     cbar = plt.colorbar(im, ax=ax)
-    cbar.set_label(f'Height (Z) [cm], scale fixed to [{z_min*100:.1f}, {z_max*100:.1f}]')
+    cbar.set_label(f'Height (Z) [cm] (fixed range {z_min*100:.1f} to {z_max*100:.1f})')
     ax.set_xlabel('X (m)')
     ax.set_ylabel('Y (m)')
     ax.set_title('Floor Flatness Heatmap (Top-down View)')

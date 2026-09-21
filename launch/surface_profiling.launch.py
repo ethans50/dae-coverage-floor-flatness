@@ -25,8 +25,8 @@ def generate_launch_description():
         ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true
         ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=false
 
-        # EVAL.md 알고리즘 비교 실험용 - 라벨을 주면 이번 수집물(pcd/heatmap)을
-        # <workspace_root>/eval_runs/<라벨>/ 아래로 모아 저장함(안 주면 기존 동작 그대로).
+        # 알고리즘 비교 실험용 - 라벨을 주면 이번 수집물(pcd/heatmap)을
+        # <workspace_root>/eval_runs/<라벨>/ 아래로 모아 저장함(안 주면 기본 동작 그대로).
         # mission_execution.launch.py에 준 라벨과 반드시 같은 값을 줘야 함:
         ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true eval_run_label:=algo1_centroid
 
@@ -37,7 +37,7 @@ def generate_launch_description():
         # "이 노드가 실제로 시작한 시각"이 아니라 "이번 실험 전체를 가리키는
         # 공유 식별자"로 미리 정해서 넘기는 값임. 형식은
         # 'YYYY-MM-DD_HH-MM-SS'(예: `$(date +%Y-%m-%d_%H-%M-%S)`):
-        ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true eval_run_label:=algo1_centroid run_ts:=2026-09-14_14-17-31
+        ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true eval_run_label:=algo1_centroid run_ts:=<timestamp>
     """
 
     is_sim_arg = DeclareLaunchArgument(
@@ -48,12 +48,12 @@ def generate_launch_description():
     eval_run_label_arg = DeclareLaunchArgument(
         'eval_run_label',
         default_value='',
-        description='EVAL.md 알고리즘 비교 실험용 라벨 - 비어있으면(기본값) 기존과 동일한 flat 경로에 저장함'
+        description='알고리즘 비교 실험용 라벨 - 비어있으면(기본값) 평소와 동일한 flat 경로에 저장함'
     )
     run_ts_arg = DeclareLaunchArgument(
         'run_ts',
         default_value='',
-        description="EVAL.md 실험용 공유 타임스탬프('YYYY-MM-DD_HH-MM-SS') - mission_execution.launch.py에도 같은 값을 줘야 파일명이 통일됨. 비어있으면(기본값) 기존처럼 자체 시각을 찍음"
+        description="알고리즘 비교 실험용 공유 타임스탬프('YYYY-MM-DD_HH-MM-SS') - mission_execution.launch.py에도 같은 값을 줘야 파일명이 통일됨. 비어있으면(기본값) 평소처럼 자체 시각을 찍음"
     )
 
     is_sim = LaunchConfiguration('is_sim')

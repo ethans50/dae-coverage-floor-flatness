@@ -20,7 +20,7 @@ def _resample_single_segment(poses, seg_type, record_pcd, extra_header=None):
     simplify_path(Douglas-Peucker)를 이미 적용해 격자 지그재그를 제거해
     두므로, 여기 남는 점은 전부 실제로 의미 있는 코너임. 직선 중간의
     보간점(_midpoint)은 두지 않음 - 시작/꼭짓점/끝만으로 "지나쳐야
-    채워진다" 원칙(HISTORY.md §1)을 충분히 만족함이 실측 검증됨.
+    채워진다" 원칙을 충분히 만족함이 실측 검증됨.
 
     세그먼트의 시작점과 끝점은 항상 원본 좌표 그대로 보존됨(보간 없음).
 

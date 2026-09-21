@@ -7,7 +7,7 @@ map->odom(AMCL)이 velodyne_points보다 느려서 단순 lookup_transform은 �
 `Buffer.wait_for_transform_async` 코루틴으로 같은 효과를 직접 구현함 - 메시지를
 바로 처리하지 않고 그 stamp를 커버하는 TF가 도착한 뒤에 처리함. 여기에 프레임
 단위 저역통과 필터(순간 선속도/각속도 임계)를 얹어 AMCL 점프 등으로 튄 프레임을
-버림. 자세한 동작은 DETAILS.md §7, 저역통과 기준값 리셋 경위는 HISTORY.md §11 참고.
+버림. 캡처를 새로 시작할 때는 저역통과 기준값을 리셋해야 함(capture_services_mixin.py 참고).
 
 믹스인으로 둔 이유는 `nav2_drive_mixin.py`와 같음 - 포인트 버퍼
 (`all_points`/`current_waypoint_points`), 캡처 상태(`capture_active`), 저역통과
@@ -17,7 +17,7 @@ map->odom(AMCL)이 velodyne_points보다 느려서 단순 lookup_transform은 �
 SurfaceProfiler 쪽에 다음이 있다고 전제함: `profiling_cfg`, `is_sim`,
 `spin_executor`, `stop_requested`, `capture_active`, `only_capture_at_waypoints`,
 `all_points`, `current_waypoint_points`, `enable_tf_lowpass_filter`,
-`tf_lowpass_max_linear_vel`, `tf_lowpass_max_angular_vel_deg`, `last_tf_*`.
+`tf_lowpass_max_linear_vel`, `tf_lowpass_max_angular_vel_deg`, `last_tf_*`, `frame_recorder`(None이면 프레임 기록 안 함). `lidar_mount_correction`은 _setup_pointcloud_subscription에서 만듦.
 """
 
 import math
@@ -44,11 +44,10 @@ class TfSyncMixin:
         self.tf_timeout_sec = self.profiling_cfg.get('tf_timeout_sec', 0.1)
 
         self.tf_buffer = Buffer()
-        # [변경] spin_thread=True를 쓰지 않는다(기본값 False).
-        # 예전 코드(lookup_transform을 콜백 안에서 timeout까지 블로킹 대기)에서는
-        # tf 구독을 별도 스레드로 분리하는 게 필수였지만, 지금은
-        # wait_for_transform_async(코루틴, await로 양보)로 바뀌어서 콜백이
-        # 스레드를 블로킹하지 않음. 따라서 tf 구독도 self.spin_executor
+        # spin_thread=True를 쓰지 않는다(기본값 False).
+        # wait_for_transform_async(코루틴, await로 양보)를 쓰므로 콜백이
+        # 스레드를 블로킹하지 않음(블로킹 lookup_transform이었다면 tf 구독을
+        # 별도 스레드로 분리해야 함). 따라서 tf 구독도 self.spin_executor
         # 하나로 충분히 처리되고, 별도 스레드/executor가 없으니 노드 종료
         # 시점에 "아직 살아있는 백그라운드 스레드 vs rclpy.shutdown()" 같은
         # 레이스 컨디션(ExternalShutdownException)도 원천적으로 사라짐.
@@ -56,9 +55,9 @@ class TfSyncMixin:
 
     def _setup_pointcloud_subscription(self):
         self.voxel_size = self.profiling_cfg.get('voxel_size', 0.01)
-        # [EVAL 준비] 알고리즘 비교 실험에서 다운샘플 이전 raw 포인트가 필요함
+        # [알고리즘 비교 실험용] 알고리즘 비교 실험에서 다운샘플 이전 raw 포인트가 필요함
         # (셀당 다중 리턴 수/z-표준편차 계산용) - 기본은 false로 평소 실행에는
-        # 영향 없음. EVAL.md 참고.
+        # 영향 없음.
         self.save_raw_pcd = self.profiling_cfg.get('save_raw_pcd', False)
 
         topic_name = (
@@ -66,6 +65,16 @@ class TfSyncMixin:
             if self.is_sim
             else self.profiling_cfg.get('pcd_topic_real', '/velodyne_points')
         )
+        # 센서 장착 자세 보정: TF(velodyne_link)가 알려주는 자세와 실제 센서 자세의
+        # 고정 오프셋(roll, pitch)을 params.yaml에서 받아 센서 좌표계에 추가 회전으로 곱함.
+        # 바닥 z가 센서로부터의 거리에 비례해 한쪽으로 기우는 체계 오차(z = a*f + b*l)를
+        # 없애기 위함이며, 값은 analyze_z_bias.py가 출력하는 제안값을 그대로 씀.
+        rpy_key = 'lidar_mount_correction_rpy_deg_sim' if self.is_sim else 'lidar_mount_correction_rpy_deg_real'
+        roll_deg, pitch_deg, yaw_deg = self.profiling_cfg.get(rpy_key, [0.0, 0.0, 0.0])
+        self.lidar_mount_correction = tf_transformations.euler_matrix(
+            math.radians(roll_deg), math.radians(pitch_deg), math.radians(yaw_deg))
+        self.get_logger().info(f"LiDAR mount correction ({rpy_key}) rpy_deg=({roll_deg}, {pitch_deg}, {yaw_deg})")
+
         self.get_logger().info(f"Execution Mode: {'Simulation' if self.is_sim else 'Real Hardware'}")
         self.get_logger().info(f"Subscribing to topic: {topic_name}")
 
@@ -199,13 +208,28 @@ class TfSyncMixin:
         # (AMCL 점프, 회전 중 잔여 프레임 등) 이 프레임 전체를 버림. 새 주행
         # 설계(mission_executor.py)가 회전 중엔 애초에 캡처를 켜지 않지만, 이건
         # 그래도 남을 수 있는 잔여 오차에 대한 방어선(defense in depth)임.
-        if not self._tf_passes_lowpass_filter(trans, msg.header.stamp):
+        passes = self._tf_passes_lowpass_filter(trans, msg.header.stamp)
+
+        # 프레임 단위 기록(save_frame_log=true일 때만 recorder가 있음). 기각된 프레임도
+        # 남겨서 "벽 근처 점 부재가 저역통과 기각 때문인지"를 나중에 구분할 수 있게 함.
+        rec = self.frame_recorder
+        stamp_sec = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        would_use = self.capture_active or not self.only_capture_at_waypoints
+        store_points = would_use or (rec is not None and rec.store_transit_points)
+        if not store_points or (not passes and rec is None):
+            # 결과에 반영될 수 없는 프레임은 변환 없이 pose만 남기고 끝냄.
+            if rec is not None:
+                rec.add(stamp_sec, rec.pose_from_transform(trans), None,
+                        self.capture_active, not passes)
             return
 
         # PointCloud2 → numpy array 변환
         raw_points = pc2.read_points(msg, skip_nans=True, field_names=('x', 'y', 'z'))
         points_np = np.array([(p[0], p[1], p[2]) for p in raw_points], dtype=np.float32)
         if len(points_np) == 0:
+            if rec is not None:
+                rec.add(stamp_sec, rec.pose_from_transform(trans), None,
+                        self.capture_active, not passes)
             return
 
         # 행렬 연산을 위해 GPU(또는 CPU)로 전송
@@ -222,13 +246,19 @@ class TfSyncMixin:
         # 결과 저장 (최종 저장 시에만 CPU로 복사)
         transformed_np = transformed_t[:, :3].cpu().numpy()
 
+        if rec is not None:
+            rec.add(stamp_sec, rec.pose_from_transform(trans), transformed_np,
+                    self.capture_active, not passes)
+        if not passes:
+            return
+
         if self.only_capture_at_waypoints:
             # 정지-캡처 구간(capture_active=True)의 포인트만 적재함.
             # 이동(transit) 중 수집된 포인트는 모션 블러/타임스탬프 오차 우려로 버림.
             if self.capture_active:
                 self.current_waypoint_points.append(transformed_np)
         else:
-            # 기존 동작(전 구간 연속 수집) 유지. 캡처 구간 포인트는 부가적으로
+            # 기본 동작(전 구간 연속 수집) 유지. 캡처 구간 포인트는 부가적으로
             # 지점별 버퍼에도 동시에 적재해서 별도 PCD로도 저장할 수 있게 함.
             self.all_points.append(transformed_np)
             if self.capture_active:
@@ -244,4 +274,4 @@ class TfSyncMixin:
              trans.transform.rotation.w]
         mat = tf_transformations.quaternion_matrix(q)
         mat[:3, 3] = t
-        return mat
+        return mat @ self.lidar_mount_correction
