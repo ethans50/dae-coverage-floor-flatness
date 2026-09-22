@@ -22,59 +22,118 @@ lidar_mount_correction_rpy_deg_real: [0.0, 0.0, 0.0]
 
 `mission_execution` is not started; the capture window is opened and closed by calling the capture services directly.
 
-### 2-1. Launch order
+### 2-1. Launch order (6 terminals total)
 
 **Simulation**
 
 ```bash
-ros2 launch dae_coverage_floor_flatness sim_env.launch.py                                    # 1
-ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=true          # 2
-ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true              # 3
-# 5. Drive with the speed command in section 2-3 (keyboard teleop is not used: its speed differs from the measurement speed)
+# T1: Gazebo environment
+ros2 launch dae_coverage_floor_flatness sim_env.launch.py
+
+# T2: Nav2 + AMCL
+ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=true
+
+# T3: Measurement node
+ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true
+
+# T4: Section 2-2 capture control (service calls)
+# T5: Section 2-3 velocity command
 ```
 
-**Real robot** (same order as the README run order, with the fixed-speed command instead of mission execution)
+**Real robot** (6 terminals total)
 
 ```bash
-ros2 launch dae_coverage_floor_flatness real_bringup.launch.py                                # [Jetson]
-ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=false         # [Jetson]
-ros2 launch velodyne velodyne-all-nodes-VLP16-launch.py                                       # [Laptop]
-ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=false             # [Laptop]
-# Drive with the speed command in section 2-3 (from a machine that reaches the robot)
+# === Jetson ===
+# T1: Robot driver + TF publisher
+ros2 launch dae_coverage_floor_flatness real_bringup.launch.py
+
+# T2: Nav2 + AMCL (converge initial pose using RViz before starting)
+ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=false
+
+# T3: Velocity command (publish cmd_vel from Jetson)
+# → Run the velocity commands from section 2-3 here
+
+# === Laptop (3D LiDAR connected) ===
+# T4: Velodyne driver
+ros2 launch velodyne velodyne-all-nodes-VLP16-launch.py
+
+# T5: Measurement node (runs on laptop for time sync)
+ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=false
+
+# T6: Capture control (call services from laptop)
+# → Run the start/stop calls from section 2-2 here
 ```
+
+**Before running**
 
 - Points are recorded only while a `map → velodyne_link` TF exists. Without a mission, set an initial pose (e.g. in RViz) and let AMCL converge before starting.
 - Points are stored in map coordinates, so the wall exclusion in the analysis (`--map`) and the wall overlay in the video line up with the floor plan only if the AMCL pose is accurate.
 
-### 2-2. Capture control
+### 2-2. Capture control (Laptop T6 terminal)
+
+Workflow:
 
 ```bash
-# Start capture (only points arriving after this are used in the result)
+# Step 1: Start capture (only points arriving after this are used in the result)
 ros2 service call /surface_profiling/start_waypoint_capture std_srvs/srv/Trigger
 
-# ... drive with the speed command of section 2-3, or hold still ...
+# Step 2: Publish velocity command from Jetson T3 (see section 2-3)
+#         Example: ros2 topic pub --times 375 -r 20 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.16}}"
 
-# Stop capture
+# Step 3: Stop the robot immediately (run from Jetson T3)
+#         → Publish a zero-velocity command to halt the robot
+ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0}}"
+
+# Step 4: Stop capture (after robot stops, wait ~1 s to let acceleration overshoot settle)
 ros2 service call /surface_profiling/stop_waypoint_capture std_srvs/srv/Trigger
 
-# End collection -> floor extraction, heatmap and accumulation video are generated
+# Step 5: End collection -> floor extraction, heatmap and accumulation video are generated
 ros2 service call /surface_profiling/stop_collection_success std_srvs/srv/Trigger
 ```
 
-- Capture windows can be opened and closed repeatedly; always call start and stop as a pair.
+**Execution location by step:**
+
+| Step | Terminal | Machine | Command |
+|------|----------|---------|---------|
+| 1 | Laptop T6 | Measurement laptop | `start_waypoint_capture` call |
+| 2 | Jetson T3 | Robot | Velocity command (forward/reverse) |
+| 3 | Jetson T3 | Robot | Stop command (`{linear: {x: 0.0}}`) |
+| 4 | Laptop T6 | Measurement laptop | `stop_waypoint_capture` call |
+| 5 | Laptop T6 | Measurement laptop | `stop_collection_success` call |
+
+**Important:**
+
+- The stop command (Step 3) must be published from **Jetson T3** to halt the robot.
+- Capture windows can be opened and closed repeatedly (repeat steps 1–4).
+- Waiting ~1 s between stop and capture-stop (Step 4) helps remove acceleration overshoot.
 - Without mission artefacts the stall-analysis stage may be skipped or warn at the end; earlier outputs are unaffected.
 
-### 2-3. Fixed-speed driving
+### 2-3. Fixed-speed driving (Jetson T3 terminal)
 
 The measurement speed is `mission_execution.coverage_speed_limit_mps` (default 0.16 m/s). Keyboard teleoperation does not run at that speed, so publish a constant velocity to `/cmd_vel` a fixed number of times instead.
 
+**Commands (run from Jetson T3):**
+
 ```bash
-# Forward: 0.16 m/s x 375 messages at 20 Hz = about 3 m (distance = speed x count / rate)
+# Forward: 0.16 m/s x 20 Hz x 375 messages = about 3 m (distance = speed x count / rate)
 ros2 topic pub --times 375 -r 20 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.16}}"
 
 # Reverse
 ros2 topic pub --times 375 -r 20 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: -0.16}}"
+
+# Stop (execute immediately after forward/reverse completes, see section 2-2 step 3)
+ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0}}"
 ```
+
+**Workflow:**
+
+1. Call `start_waypoint_capture` from Laptop T6
+2. Run the forward/reverse command from Jetson T3 (robot drives for the computed time)
+3. Run the stop command from Jetson T3 (robot halts)
+4. Wait ~1 s (acceleration overshoot settles)
+5. Call `stop_waypoint_capture` from Laptop T6
+
+**Notes:**
 
 - This is an open-loop command published directly, so run it with no active Nav2 goal, and check that the space ahead is clear.
 - A step velocity command produces acceleration right after start and stop. Open the capture window 1 s after the start and close it 1 s before the end so that only the constant-speed part is recorded.
@@ -136,7 +195,19 @@ roll (deg, +=left higher): mean 0.003  std(between frames) 0.009
 suggested lidar_mount_correction_rpy_deg = [-0.003, 0.000, 0.0]
 ```
 
-- Points within `--wall-margin` (default 0.4 m) of a wall are excluded, and only floor points at 1.2-3.5 m from the sensor (`--r-min/--r-max`, |z| ≤ `--z-band`, default 0.1 m) are used. For each frame the plane `z = a·f + b·l + c` is fitted by least squares, giving pitch = atan(a) and roll = atan(b).
+**Range filtering (important)**
+
+Points are filtered by sensor distance (`--r-min/--r-max`, default 1.2–3.5 m):
+- **1.2 m minimum**: Exclude the area right under the sensor (0–1.2 m), where strong reflections and noise dominate.
+- **3.5 m maximum**: Exclude distant points (> 3.5 m), where signal attenuation reduces reliability.
+- **Match your actual measurement range**: If the robot measures floor at 0.5–4.0 m in operation, adjust `--r-min 0.5 --r-max 4.0`.
+
+Wall filtering and z-band filtering:
+- Points within `--wall-margin` (default 0.4 m) of a wall are excluded (wall-surface points corrupt z statistics).
+- Only floor points within |z| ≤ `--z-band` (default 0.1 m = ±10 cm) are kept; points above or below (ceiling, walls) are excluded.
+
+Computation:
+- For each frame, the plane `z = a·f + b·l + c` is fitted by least squares, giving pitch = atan(a) and roll = atan(b).
 - A small **between-frame standard deviation** means a fixed offset (correctable); a large one means the tilt varies while driving, which this procedure cannot correct.
 - Direction check: analyse the forward and reverse data separately and see whether the pitch sign stays fixed in the robot frame.
 
