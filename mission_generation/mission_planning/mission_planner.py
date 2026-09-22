@@ -229,7 +229,7 @@ class MissionPlanner:
             contours, _ = cv2.findContours(safe_node_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
             if node_id == 2:
-                print(f"[DEBUG] Node {node_id}의 safe_node_mask 윤곽선 개수: {len(contours)}")
+                print(f"[DEBUG] Node {node_id}의 safe_node_mask의 윤곽선 개수: {len(contours)}")
                 if len(contours) > 1:
                     areas = [cv2.contourArea(c) for c in contours]
                     print(f"[DEBUG] 각 조각의 면적: {areas}")
