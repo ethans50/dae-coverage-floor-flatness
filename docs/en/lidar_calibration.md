@@ -155,6 +155,59 @@ The number of rejected frames appears in the video header (`rejected_frames`) an
 | Check for a direction-dependent bias | Capture the same 3-4 m line **forward, then in reverse**. If the colour bias stays on the robot's front/back it is a sensor-pose effect; if it follows the travel direction it is a dynamic effect (attitude change, latency) |
 | Derive the mount correction | Hold still at one spot facing **0°, 90°, 180°, 270°** and capture **the same duration (e.g. 10 s)** at each. Equal frame counts per heading make the floor's own slope cancel in the average |
 
+### 2-5. Checking pose drift during a static capture
+
+For the four-heading average to cancel the floor's own slope, the robot must be **fully fixed** at each heading. AMCL/odometry noise can still cause small position/yaw jitter while "stationary", so verify after capture:
+
+```bash
+python3 -c "
+from surface_profiling.utils.frame_recorder import load_frame_log, used_frame_mask
+import numpy as np
+log = load_frame_log('frames_<timestamp>.npz')
+poses = log['poses']
+mask = used_frame_mask(log)
+yaw_deg = np.degrees(poses[mask, 3])
+print(f'yaw std: {yaw_deg.std():.2f} deg, range: {yaw_deg.max() - yaw_deg.min():.2f} deg')
+"
+```
+
+- If the yaw standard deviation within one heading's segment exceeds 1°, the robot drifted during that segment — re-capture that heading.
+- This check does not apply to moving data (section 2-3's fixed-speed driving), where yaw is expected to change continuously — only to the static captures used for the four-heading derivation.
+
+### 2-6. Automation tools (run the whole procedure from one laptop)
+
+Scripts that replace the manual steps in sections 2-1 through 2-5 with two commands run from a single laptop. Instead of holding the robot fully still at each heading, each heading drives a **reverse → forward → reverse (back to start)** pattern to cover more floor area, and heading changes are auto-aligned by re-detecting the wall with the LiDAR.
+
+**Step 1: scan the room, get a placement guide**
+
+```bash
+python3 surface_profiling/scan_room_for_calibration.py --duration 6 --out room_placement_guide.png
+```
+
+Stand the LiDAR anywhere in the room and run this. It collects a few seconds of raw points (no map/AMCL needed), detects the room's outline, and saves an image showing where to place the robot ("from here, move forward X m, left Y m, then rotate Z degrees") plus the distance to all four walls from that point.
+
+**Step 2: automated four-heading calibration drive**
+
+```bash
+# First confirm the wall-angle detector gives a sane sign in this room (nudge the robot by hand)
+python3 surface_profiling/auto_calibration_drive.py --detect-only
+
+# Walk through the whole procedure without actually moving
+python3 surface_profiling/auto_calibration_drive.py --reverse-m 1.5 --forward-m 3.0 --dry-run
+
+# Run for real
+python3 surface_profiling/auto_calibration_drive.py --reverse-m 1.5 --forward-m 3.0
+```
+
+Instead of typing `--host`/`--password` every time, export them once per terminal session:
+
+```bash
+export ROBOT_HOST=192.168.0.10
+export SSH_PASSWORD=1234
+```
+
+Adjust `--reverse-m`/`--forward-m` to the room's actual size (use different distances per side if the room is not square). See `--help` for the remaining options and safety limits (max rotation step per correction, alignment timeout, etc.).
+
 ## 3. Inspecting the accumulation video
 
 At the end of collection, `accumulation_<timestamp>.mp4` is written to `visualization_dir` (default `~/dae_floor_maps/visualization/surface_profiling/`). Walls and the robot are black; points are coloured by z.
@@ -207,9 +260,10 @@ Wall filtering and z-band filtering:
 - Only floor points within |z| ≤ `--z-band` (default 0.1 m = ±10 cm) are kept; points above or below (ceiling, walls) are excluded.
 
 Computation:
-- For each frame, the plane `z = a·f + b·l + c` is fitted by least squares, giving pitch = atan(a) and roll = atan(b).
+- For each frame, the plane `z = a·f + b·l + c` is fitted by least squares, giving pitch = atan(a) and roll = atan(b). f and l are projected using **that frame's own yaw**.
 - A small **between-frame standard deviation** means a fixed offset (correctable); a large one means the tilt varies while driving, which this procedure cannot correct.
 - Direction check: analyse the forward and reverse data separately and see whether the pitch sign stays fixed in the robot frame.
+- **Yaw range caution**: because f and l are projected per-frame using that frame's own yaw, if the data's yaw only spans a narrow range (e.g. driving through one room in a single direction), any real floor slope does not cancel and leaks directly into the pitch/roll estimate. A suggested value derived from moving data can therefore be a mix of "sensor bias + that segment's real local floor slope" — cross-check with a static four-heading capture (sections 2-4, 2-5) before trusting it.
 
 ### 4-1. Applying the correction
 

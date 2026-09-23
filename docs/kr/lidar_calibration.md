@@ -154,6 +154,59 @@ ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0}}"
 | 진행 방향 편향 확인 | 같은 직선(3~4m)을 **전진 → 후진** 각각 한 번씩 캡처. 색 편향이 로봇 앞/뒤에 고정되면 센서 자세, 주행 방향에 고정되면 동특성(자세 변화·지연) 문제임 |
 | 장착 자세 보정값 산출 | 같은 자리에서 **0°, 90°, 180°, 270°** 방향으로 각각 정지해 **같은 시간(예: 10초)** 캡처. 방향별 프레임 수를 같게 해야 바닥 자체의 경사가 평균에서 상쇄됨 |
 
+### 2-5. 정지 캡처 중 자세(pose) 드리프트 확인
+
+4방향 평균이 바닥 실제 경사를 상쇄하려면, 각 방향에서 로봇이 **그 방향으로 완전히 고정**돼 있어야 함. AMCL/오도메트리 잡음으로 정지 중에도 위치·yaw가 미세하게 흔들릴 수 있으므로, 캡처 후 아래처럼 확인함.
+
+```bash
+python3 -c "
+from surface_profiling.utils.frame_recorder import load_frame_log, used_frame_mask
+import numpy as np
+log = load_frame_log('frames_<timestamp>.npz')
+poses = log['poses']
+mask = used_frame_mask(log)
+yaw_deg = np.degrees(poses[mask, 3])
+print(f'yaw std: {yaw_deg.std():.2f} deg, range: {yaw_deg.max() - yaw_deg.min():.2f} deg')
+"
+```
+
+- 한 방향 구간 안에서 yaw 표준편차가 1° 이상이면 그 구간 동안 로봇이 흔들린 것이므로, 해당 방향은 재촬영을 권장.
+- 다만 이동 중 데이터(2-3절 고정 속도 주행)에서는 yaw가 원래 계속 변하므로 이 확인이 의미 없음 — 정지 캡처(4방향 산출용)에만 적용.
+
+### 2-6. 자동화 도구 (노트북 한 대로 전체 절차 실행)
+
+2-1~2-5절의 수동 절차를 노트북 한 대에서 명령 두 개로 대신 실행하는 스크립트임. 로봇을 매 방향마다 완전히 정지시키는 대신, 각 방향에서 **후진→전진→후진(원위치 복귀)** 왕복 주행으로 더 넓은 바닥 영역을 사용하고, 방향 전환은 벽면을 라이다로 재검출해 자동 정렬함.
+
+**1단계: 방 스캔 → 배치 가이드**
+
+```bash
+python3 surface_profiling/scan_room_for_calibration.py --duration 6 --out room_placement_guide.png
+```
+
+라이다를 방 아무 곳에나 세워두고 실행하면, 그 자리에서 몇 초간 모은 원시 포인트(맵/AMCL 불필요)로 방 외곽을 검출해 "여기서 전방 X m, 좌측 Y m 이동 + Z도 회전"하면 되는 배치 지점과 4벽까지의 거리를 이미지로 저장함.
+
+**2단계: 자동 4방향 캘리브레이션 주행**
+
+```bash
+# 먼저 벽 각도 검출기가 실제 방에서 타당한 부호로 나오는지 확인 (로봇을 직접 살짝 돌려보기)
+python3 surface_profiling/auto_calibration_drive.py --detect-only
+
+# 전체 절차를 실제 이동 없이 훑어보기
+python3 surface_profiling/auto_calibration_drive.py --reverse-m 1.5 --forward-m 3.0 --dry-run
+
+# 실제 실행
+python3 surface_profiling/auto_calibration_drive.py --reverse-m 1.5 --forward-m 3.0
+```
+
+`--host`/`--password`는 매번 입력하는 대신 터미널에서 한 번만 export해두면 이후 생략 가능함:
+
+```bash
+export ROBOT_HOST=192.168.0.0
+export SSH_PASSWORD=0000
+```
+
+`--reverse-m`/`--forward-m`은 방 크기에 맞춰 조정함(방이 정사각형이 아니면 한 변 기준으로 왕복 거리를 다르게 줌). 나머지 옵션과 안전장치(회전 최대 스텝, 정렬 타임아웃 등)는 스크립트 내 `--help` 참고.
+
 ## 3. 누적 영상으로 확인
 
 수집 종료 시 `visualization_dir`(기본 `~/dae_floor_maps/visualization/surface_profiling/`)에 `accumulation_<timestamp>.mp4`가 자동 생성됨. 도면 벽과 로봇은 검정, 점은 z 높이 색임.
@@ -172,21 +225,21 @@ ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0}}"
 
 ```bash
 python3 surface_profiling/make_accumulation_video.py \
-  ~/dae_floor_maps/analytics/pointclouds/frames/frames_2026-09-22_12-53-12.npz \
-  --z-min -0.01 --z-max 0.01 --z-margin 0.05
+  ~/dae_floor_maps/analytics/pointclouds/frames/frames_2026-09-22_13-11-03.npz \
+  --z-min -0.02 --z-max 0.02 --z-margin 0.05
 ```
 
-- 색 범위를 좁힐수록(예: ±1 cm) 미세한 차이가 크게 보임. 관측 횟수가 적은 셀(로봇 앞쪽에 처음 보이는 영역)은 평균이 덜 수렴해 잡음(sim 기준 표준편차 약 0.2 cm)이 색으로 드러나므로, 색만으로 편향을 판단하지 말고 4절 수치로 확인함. 벽 근처는 벽면 점이 섞여 z가 높게 나옴.
+- 색 범위를 좁힐수록(예: ±1 cm) 미세한 차이가 더 크게 보임. 색 범위를 벗어나는 값은 회색과 핑크색으로 일괄 표시함. 관측 횟수가 적은 셀(로봇 앞쪽에 처음 보이는 영역)은 평균이 덜 수렴해 잡음(sim 기준 표준편차 약 0.2 cm)이 색으로 드러나므로, 색만으로 편향을 판단하지 말고 4절 수치로 확인함. 벽 근처는 벽면 점이 섞여 z가 높게 나옴.
 - 옵션: `--fps`, `--max-frames`(영상 프레임 수 상한), `--max-dim`(해상도), `--out`.
 
 ### 3-2. 다른 공간에서 캘리브레이션 (맵 없이)
 
-맵이 없거나 맵 좌표와 맞지 않으면 영상이 왜곡될 수 있음. **4절의 수치 분석은 맵 없이도 진행 가능**함.
+맵이 없거나 맵 좌표와 맞지 않으면 영상이 왜곡될 수 있음. **4.의 수치 분석은 맵 없이도 진행 가능**함.
 
 ```bash
 # 맵 없이: 센서 범위 1.2~3.5m, z 범위 ±10cm 내의 모든 점 사용
 python3 surface_profiling/analyze_z_bias.py \
-  ~/dae_floor_maps/analytics/pointclouds/frames/frames_2026-09-22_12-53-12.npz
+  ~/dae_floor_maps/analytics/pointclouds/frames/frames_2026-09-22_13-11-03.npz
 ```
 
 벽 제외 대신 센서 거리 범위로 자동 필터링함. 더 많은 점이 포함되므로 잡음이 늘 수 있으나, 순수 바닥 기울기(pitch/roll)를 찾기에는 충분함.
@@ -207,7 +260,7 @@ python3 surface_profiling/analyze_z_bias.py \
 
 ```bash
 python3 surface_profiling/analyze_z_bias.py \
-  ~/dae_floor_maps/analytics/pointclouds/frames/frames_2026-09-22_12-53-12.npz
+  ~/dae_floor_maps/analytics/pointclouds/frames/frames_2026-09-22_13-11-03.npz
 ```
 
 두 모드 모두 같은 원리로 pitch/roll을 계산함. 맵 모드가 벽면 점을 제외해 더 깔끔함.
@@ -254,9 +307,10 @@ roll (deg, +=좌측이 높음): mean 0.003  std(프레임 간) 0.009
 
 **계산**
 
-- 프레임마다 평면 `z = a·f + b·l + c`를 최소제곱으로 맞춰 pitch=atan(a), roll=atan(b)를 구함.
+- 프레임마다 평면 `z = a·f + b·l + c`를 최소제곱으로 맞춰 pitch=atan(a), roll=atan(b)를 구함. f, l은 **그 프레임 자신의 yaw**로 투영한 로봇 좌표계임.
 - **프레임 간 표준편차**가 작으면 고정 오프셋(보정 대상), 크면 주행 중 변하는 기울기임. 고정 오프셋이 아니면 이 절차로는 보정되지 않음.
 - 방향 편향 확인: 전진/후진 데이터를 각각 분석해 pitch 부호가 로봇 기준으로 유지되는지 봄.
+- **yaw 범위 주의**: f, l이 프레임별 yaw로 투영되므로, 데이터의 yaw가 좁은 범위(예: 방 하나를 한 방향으로만 통과)에서만 움직이면 바닥 자체의 실제 경사가 상쇄되지 않고 pitch/roll에 그대로 섞임. 이동 중 수집한 데이터로 나온 제안값은 "센서 편향 + 그 구간 바닥의 실제 국소 경사"가 합쳐진 값일 수 있으므로, 정지 4방향(2-4, 2-5절) 데이터로 검증해야 함.
 
 ### 4-3. 보정값 적용 및 재검증 절차
 
@@ -343,6 +397,6 @@ lidar_mount_correction_rpy_deg_real: [-0.30, 0.45, 0.0]
 
 ## 5. 한계
 
-- 바닥이 평평하다는 가정으로 평면을 맞추므로, **평탄도를 재려는 바로 그 바닥**에서 보정하면 순환임. 4방향 평균은 바닥 경사가 로봇과 함께 돌지 않는다는 점을 이용해 이를 줄이는 방법임.
+- 바닥이 평평하다는 가정으로 평면을 맞추므로, **평탄도를 재려는 바로 그 바닥**에서 보정하면 순환임. 4방향 측정 평균은, 바닥 경사가 로봇과 함께 돌지 않는다는 점을 이용해, 이 편향을 줄이는 방법임.
 - 이 보정은 **고정** 오프셋만 다룸. 결함 위를 지날 때 차체가 기우는 것 같은 동적 기울기는 보정되지 않음(현재 TF는 평면이라 roll/pitch가 반영되지 않음).
 - 사용 거리 범위(1.2~3.5m)와 프레임당 최소 점 수(300)는 기본값이며, 다른 센서/높이에서는 `--r-min`, `--r-max`, `--min-points`를 조정함.
