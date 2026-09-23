@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 # surface_profiling/scan_room_for_calibration.py
 """
-캘리브레이션할 방에 라이다를 세워두고 이 스크립트를 실행하면, 그 자리에서
-N초간 원시 포인트클라우드(센서 좌표계, map/AMCL 불필요)를 모아 방의 2D 평면도를
-그리고, auto_calibration_drive.py로 4방향 캘리브레이션을 시작하기 적합한
-로봇 배치 지점·방향과 벽까지의 거리를 계산해 이미지로 저장함.
+Stand the LiDAR in the room to be calibrated and run this script: it collects
+N seconds of raw point cloud from that spot (sensor frame, no map/AMCL
+needed), draws a 2D floor plan of the room, and saves an image showing where
+to place and how to orient the robot to start a four-heading calibration with
+auto_calibration_drive.py, plus the distance to each wall from that point.
 
-방이 정사각형이 아니어도 동작함 - 검출된 방 외곽의 최소회전사각형을 그대로 쓰므로
-장변/단변 길이가 다르면 그 값 그대로 안내함.
+Works even if the room is not square - it uses the detected room outline's
+minimum-area rotated rectangle as-is, so a long/short side mismatch is
+reported directly.
 
-사용 예:
+Example:
   python3 scan_room_for_calibration.py --duration 6 --out room_placement_guide.png
 """
 
@@ -42,11 +44,11 @@ class RoomScanner(Node):
 
     def collect(self):
         t0 = time.time()
-        print(f"[*] {self.duration}초 동안 스캔 수집 중...")
+        print(f"[*] Collecting scan for {self.duration}s...")
         while time.time() - t0 < self.duration:
             rclpy.spin_once(self, timeout_sec=0.1)
         if not self.chunks:
-            raise RuntimeError("[-] 점을 하나도 못 받음 - /velodyne_points 발행 여부 확인")
+            raise RuntimeError("[-] Received no points at all - check whether /velodyne_points is being published")
         return np.concatenate(self.chunks, axis=0)
 
 
@@ -88,12 +90,12 @@ def find_room_rect(wall_grid, min_hits, sensor_rc):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--duration', type=float, default=6.0, help='스캔 수집 시간(초)')
-    ap.add_argument('--z-min', type=float, default=-0.2, help='벽으로 볼 최소 높이(센서 기준, m)')
-    ap.add_argument('--z-max', type=float, default=1.2, help='벽으로 볼 최대 높이(센서 기준, m)')
-    ap.add_argument('--r-max', type=float, default=8.0, help='벽으로 볼 유효 최대 거리(m)')
-    ap.add_argument('--cell-size', type=float, default=0.05, help='2D 격자 크기(m)')
-    ap.add_argument('--min-hits', type=int, default=15, help='벽으로 판정할 셀당 최소 점 수')
+    ap.add_argument('--duration', type=float, default=6.0, help='Scan collection time (s)')
+    ap.add_argument('--z-min', type=float, default=-0.2, help='Min height counted as wall (sensor frame, m)')
+    ap.add_argument('--z-max', type=float, default=1.2, help='Max height counted as wall (sensor frame, m)')
+    ap.add_argument('--r-max', type=float, default=8.0, help='Max effective range counted as wall (m)')
+    ap.add_argument('--cell-size', type=float, default=0.05, help='2D grid cell size (m)')
+    ap.add_argument('--min-hits', type=int, default=15, help='Min points per cell to count it as wall')
     ap.add_argument('--out', default='room_placement_guide.png')
     args = ap.parse_args()
 
@@ -104,7 +106,7 @@ def main():
 
     wall_pts = extract_wall_points(points, args.z_min, args.z_max, args.r_max)
     if wall_pts.shape[0] < 500:
-        raise RuntimeError(f"[-] 벽면 점이 너무 적음({wall_pts.shape[0]}개) - --z-min/--z-max/--r-max 조정 필요")
+        raise RuntimeError(f"[-] Too few wall points ({wall_pts.shape[0]}) - adjust --z-min/--z-max/--r-max")
 
     grid, x_min, y_min = rasterize(wall_pts[:, :2], args.cell_size)
     sensor_col = int(round((0.0 - x_min) / args.cell_size))
@@ -112,7 +114,8 @@ def main():
 
     rect = find_room_rect(grid, args.min_hits, (sensor_col, sensor_row))
     if rect is None:
-        raise RuntimeError("[-] 방 외곽 검출 실패 - 스캔 위치나 --min-hits/--z-min/--z-max 조정 필요")
+        raise RuntimeError("[-] Failed to detect the room outline - adjust the scan position or "
+                            "--min-hits/--z-min/--z-max")
 
     (cx, cy), (rw, rh), angle_deg = rect
     center_x = x_min + cx * args.cell_size
@@ -121,11 +124,12 @@ def main():
     room_h_m = rh * args.cell_size
 
     dx, dy = center_x, center_y  # 현재 센서 위치(0,0) 기준 추천 배치 지점까지 상대 오프셋
-    print(f"[*] 방 크기(추정): {room_w_m:.2f} m x {room_h_m:.2f} m, 사각형 회전각 {angle_deg:.1f} deg")
-    print(f"[*] 추천 배치 지점: 현재 위치에서 전방(x) {dx:+.2f} m, 좌측(y) {dy:+.2f} m 이동")
-    print(f"[*] 그 지점에서 현재 방향 기준 {angle_deg:.1f} deg 회전해 방 장변에 정렬 후 캘리브레이션 시작 권장")
-    print(f"[*] 벽까지 거리(그 지점 기준): 장변 방향 ±{max(room_w_m, room_h_m) / 2:.2f} m, "
-          f"단변 방향 ±{min(room_w_m, room_h_m) / 2:.2f} m")
+    print(f"[*] Estimated room size: {room_w_m:.2f} m x {room_h_m:.2f} m, rectangle rotation {angle_deg:.1f} deg")
+    print(f"[*] Recommended placement: from here, move forward(x) {dx:+.2f} m, left(y) {dy:+.2f} m")
+    print(f"[*] From that point, rotate {angle_deg:.1f} deg from the current heading to align with the "
+          "room's long side before starting calibration")
+    print(f"[*] Distance to walls (from that point): +-{max(room_w_m, room_h_m) / 2:.2f} m along the long side, "
+          f"+-{min(room_w_m, room_h_m) / 2:.2f} m along the short side")
 
     fig, ax = plt.subplots(figsize=(8, 8))
     ax.imshow(grid > 0, cmap='gray_r', origin='lower',
@@ -134,19 +138,19 @@ def main():
     box = cv2.boxPoints(rect)
     box_world = np.array([[x_min + px * args.cell_size, y_min + py * args.cell_size] for px, py in box])
     box_world = np.vstack([box_world, box_world[0]])
-    ax.plot(box_world[:, 0], box_world[:, 1], 'g-', linewidth=2, label='추정 방 외곽')
-    ax.plot(0, 0, 'b^', markersize=12, label='현재 라이다 위치')
-    ax.plot(center_x, center_y, 'r*', markersize=16, label='추천 배치 지점')
+    ax.plot(box_world[:, 0], box_world[:, 1], 'g-', linewidth=2, label='Estimated room outline')
+    ax.plot(0, 0, 'b^', markersize=12, label='Current LiDAR position')
+    ax.plot(center_x, center_y, 'r*', markersize=16, label='Recommended placement')
     heading_rad = np.radians(angle_deg)
     ax.annotate('', xy=(center_x + 0.4 * np.cos(heading_rad), center_y + 0.4 * np.sin(heading_rad)),
                 xytext=(center_x, center_y), arrowprops=dict(facecolor='red', width=2))
     ax.set_aspect('equal')
-    ax.set_xlabel('x (m, 현재 센서 전방)')
-    ax.set_ylabel('y (m, 현재 센서 좌측)')
-    ax.set_title(f'방 배치 가이드 - 전방 {dx:+.2f}m, 좌측 {dy:+.2f}m 이동 후 {angle_deg:.1f}deg 회전')
+    ax.set_xlabel('x (m, current sensor forward)')
+    ax.set_ylabel('y (m, current sensor left)')
+    ax.set_title(f'Room placement guide - move forward {dx:+.2f}m, left {dy:+.2f}m, then rotate {angle_deg:.1f}deg')
     ax.legend(loc='upper right', fontsize=8)
     plt.savefig(args.out, dpi=150, bbox_inches='tight')
-    print(f"[*] 저장: {args.out}")
+    print(f"[*] Saved: {args.out}")
 
 
 if __name__ == '__main__':

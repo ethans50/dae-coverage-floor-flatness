@@ -178,10 +178,10 @@ class RunContextMixin:
         대조함. mission_planner.py가 plan() 마지막에 함께 저장하는 사이드카
         'final_path_meta.json'을 읽어 비교함.
 
-        boundary_repass_distance_m/enable_boundary_repass는 final_path.json의
-        좌표 자체(transit이 실제로 시작하는 지점)에 기하학적으로 반영되므로, 두
-        시점의 값이 어긋나면 planning된 transit 시작점과 실제 repass 후 로봇 위치가
-        조용히 달라짐 - robot_width/path_safety_margin도 경로 형상 자체에
+        boundary_repass_distance_m/enable_boundary_repass/boundary_repass_max_segment_m은
+        final_path.json의 좌표 자체(transit이 실제로 시작하는 지점)에 기하학적으로
+        반영되므로, 두 시점의 값이 어긋나면 planning된 transit 시작점과 실제 repass 후
+        로봇 위치가 조용히 달라짐 - robot_width/path_safety_margin도 경로 형상 자체에
         반영되는 같은 범주의 값임. 이 일치를 사람이 매번 기억할 필요 없도록
         여기서 자동으로 대조하고, 어긋나면 다른 CRITICAL ERROR들과 동일하게
         즉시 중단시킴.
@@ -204,6 +204,7 @@ class RunContextMixin:
             'path_safety_margin': self.mission_planner_cfg.get('path_safety_margin', 0.20),
             'boundary_repass_distance_m': self.mission_exec_cfg.get('boundary_repass_distance_m', 1.5),
             'enable_boundary_repass': self.mission_exec_cfg.get('enable_boundary_repass', True),
+            'boundary_repass_max_segment_m': self.mission_exec_cfg.get('boundary_repass_max_segment_m', 2.8),
         }
 
         mismatches = []

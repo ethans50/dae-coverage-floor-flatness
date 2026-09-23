@@ -126,6 +126,7 @@ def run_generation_pipeline(snapshot_label=None):
     mission_exec_cfg = config.get('mission_execution', {})
     boundary_repass_distance_m = mission_exec_cfg.get('boundary_repass_distance_m', 1.5)
     enable_boundary_repass = mission_exec_cfg.get('enable_boundary_repass', True)
+    boundary_repass_max_segment_m = mission_exec_cfg.get('boundary_repass_max_segment_m', 2.8)
 
     # 시각화 디렉토리 경로 - regenerate 여부와 무관하게 스냅샷 시점에 항상
     # 필요하므로 여기서 미리 계산해둠(mission_cfg.pop은 아래 regenerate
@@ -187,6 +188,7 @@ def run_generation_pipeline(snapshot_label=None):
                 lidar_vertical_fov_deg=lidar_vertical_fov_deg,
                 boundary_repass_distance_m=boundary_repass_distance_m,
                 enable_boundary_repass=enable_boundary_repass,
+                boundary_repass_max_segment_m=boundary_repass_max_segment_m,
                 **mission_cfg
             )
             

@@ -110,12 +110,14 @@ mission_execution:
   # 한쪽만 메워짐(utils/boundary_repass.py 참고). 미션의 진짜 첫 지점은
   # "접근" 방향 시야가 아예 없어 별도로 run_start_prepass가 보완함.
   # blind cone이 없는 센서로 교체되면 false로 꺼서 완전히 비활성화 가능.
-  # 기본값 true. true=exit마다 되짚기 보정 수행, false=보정 없이 바로 다음
-  # 구간으로 이동(알고리즘 비교 실험에서 AllOff
-  # 조합에 쓰임 - mission_planner의 coverage_mode/enable_optimal_swath_angle과
-  # 마찬가지로 실험 후 반드시 true로 되돌릴 것).
-  enable_boundary_repass: false   # 기본값 true. ablation 실험 시에만 false로 내리고 끝나면 반드시 되돌릴 것.
+  # 세그먼트 길이가 boundary_repass_max_segment_m 이하일 때만 실제로 되짚기를
+  # 수행함 - 충분히 긴 구간은 진입 시 여러 라이다 링이 순차적으로 훑고 지나가는
+  # 것만으로 완전성이 이미 확보되어 되짚기가 불필요함(utils/boundary_repass.py 참고).
+  # 알고리즘 비교 실험에서 AllOff 조합에 쓰일 때만 false로 내리고, 실험 후
+  # 반드시 true로 되돌릴 것(mission_planner의 coverage_mode/enable_optimal_swath_angle과 동일 규칙).
+  enable_boundary_repass: true
   boundary_repass_distance_m: 3.0   # 왕복 거리 (m). blind_radius_m(약 1.26m)의 2배 이상이어야 blind cone을 충분히 덮어 다시 훑을 수 있음. 세그먼트가 이보다 짧으면 자동으로 세그먼트 길이에 맞춰 clamp됨.
+  boundary_repass_max_segment_m: 2.8   # 이보다 긴 exit 세그먼트는 되짚기 자체를 스킵함. blind_radius_m의 2배(약 2.52m)를 clamp 계수 0.9로 나눈 값 - 이보다 짧으면 boundary_repass_distance_m이 세그먼트 길이에 clamp되어 blind cone을 다 못 덮음.
 
   # [Stall Logging] nav2 goToPose/goThroughPoses/Spin feedback을 blocking 대기
   # 루프 안에서 계속 폴링해, 진행 지표(distance_remaining/angular_distance_traveled)가
@@ -219,7 +221,7 @@ surface_profiling:
   # 제안값을 그대로 넣음. 보정 후 같은 스크립트로 pitch/roll이 0에 가까워졌는지 확인함.
   # sim은 차체 정적 기울기로 측정했고, real은 실측 전이라 0으로 둠.
   lidar_mount_correction_rpy_deg_sim: [0.0, -0.146, 0.0]
-  lidar_mount_correction_rpy_deg_real: [0.0, 0.0, 0.0]
+  lidar_mount_correction_rpy_deg_real: [0.303, -0.293, 0.0]
 
   # [Frame-level Log & Accumulation Video]
   # 다운샘플 이전의 map 좌표 점을 프레임(stamp, 센서 pose, 캡처 여부, 저역통과 기각

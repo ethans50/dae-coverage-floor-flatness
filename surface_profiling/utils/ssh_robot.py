@@ -39,7 +39,7 @@ class JetsonSession:
         """'chr' 별칭(sudo chronyc -a makestep)과 동일한 동작 - TF 시간 동기화용."""
         code, out, err = self.run('chronyc -a makestep', timeout=15, sudo=True)
         if code != 0:
-            print(f"[!] chronyc makestep 실패(code={code}): {err.strip()}")
+            print(f"[!] chronyc makestep failed (code={code}): {err.strip()}")
         return code == 0
 
     def publish_twist(self, linear_x=0.0, angular_z=0.0, duration_s=1.0, rate=20, timeout_margin=10):

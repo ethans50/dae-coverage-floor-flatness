@@ -16,9 +16,17 @@ sim은 텔레포트 좌표로, real은 AMCL 초기 위치 힌트로 사용), run
 
 **이탈(exit)**: coverage 구간이 끝나는 모든 지점(중간 노드 exit 포함, 미션의
 진짜 마지막 지점도 포함)이 구조적으로 "멀어짐" 쪽 시야가 보장되지 않음.
-run_exit_repass가 모든 coverage exit에서 동일하게, 왔던 방향으로 짧게
-되짚어 재통과시켜 반대 방향 시야를 명시적으로 보장함. 왕복 구간이 세그먼트
-자체가 지나가는 길 안에 있으므로 별도의 벽 근접/안전마진 계산이 필요 없음.
+run_exit_repass가 왔던 방향으로 짧게 되짚어 재통과시켜 반대 방향 시야를
+명시적으로 보장함. 왕복 구간이 세그먼트 자체가 지나가는 길 안에 있으므로
+별도의 벽 근접/안전마진 계산이 필요 없음.
+
+다만 이 되짚기는 세그먼트 길이가 `boundary_repass_max_segment_m`(기본 2.8m
+= blind_radius_m의 2배를 0.9로 나눈 값) 이하일 때만 실행함. 세그먼트가
+충분히 길면, 진입 구간에서 라이다 링(채널)마다 반경이 달라 로봇이 접근하는
+동안 이미 여러 링이 순차적으로 같은 지점을 훑고 지나가므로, 명시적 되짚기
+없이도 실측 완전성(completeness) 지표가 이미 충분히 높게 나옴 - 다만 이건
+같은 방향에서 온 여러 번의 관측이라 센서 마운트 편향(pitch/roll)을 상쇄하는
+효과는 없고, 순수 "그 셀에 점이 있는가"만 보는 완전성 지표에만 해당함.
 
 blind cone이 없는 센서로 교체되면 이 보정 자체가 불필요해질 수 있음(단,
 바닥 요철에 의한 시야 차폐는 blind cone과 별개로 남으므로, 새 센서로 단일
@@ -180,6 +188,17 @@ class BoundaryRepassController:
             return
         if len(seg_poses) < 2:
             print("  [BoundaryRepass] Exit segment too short for a repass. Stopping capture immediately.")
+            ex._call_capture_service(ex.stop_capture_client, "stop_waypoint_capture")
+            ex._capture_active = False
+            return
+
+        max_seg_m = cfg.get('boundary_repass_max_segment_m', 2.8)
+        p0_check, p1_check = seg_poses[0].pose.position, seg_poses[-1].pose.position
+        seg_len_check = math.hypot(p1_check.x - p0_check.x, p1_check.y - p0_check.y)
+        if seg_len_check > max_seg_m:
+            print(f"  [BoundaryRepass] Exit segment long enough ({seg_len_check:.2f}m >= "
+                  f"{max_seg_m:.2f}m) that the forward pass's own multi-ring sweep already "
+                  "covers this exit - skipping repass.")
             ex._call_capture_service(ex.stop_capture_client, "stop_waypoint_capture")
             ex._capture_active = False
             return

@@ -85,6 +85,7 @@ def export(planner, output_dir, save_debug=True):
         'path_safety_margin': planner.path_safety_margin,
         'boundary_repass_distance_m': planner.boundary_repass_distance_m,
         'enable_boundary_repass': planner.enable_boundary_repass,
+        'boundary_repass_max_segment_m': planner.boundary_repass_max_segment_m,
         'map_resolution': planner.map_resolution,
         'blind_radius_m': planner.blind_radius_m,
         # 아래 5개는 실행 시 참조/대조되지 않음(순수 planning 단계 좌표

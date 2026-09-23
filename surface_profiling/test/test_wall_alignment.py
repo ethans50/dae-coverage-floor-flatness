@@ -27,17 +27,17 @@ def main():
     for tilt_deg in (0.0, 5.0, -5.0, 15.0):
         pts = make_wall_points(distance=1.5, tilt_deg=tilt_deg)
         angle_error, n = estimate_front_wall_angle_error(pts)
-        assert angle_error is not None, f"tilt={tilt_deg}: 점 부족(n={n})"
+        assert angle_error is not None, f"tilt={tilt_deg}: not enough points (n={n})"
         est_deg = np.degrees(angle_error)
-        print(f"실제 tilt={tilt_deg:+.1f} deg -> 추정 angle_error={est_deg:+.2f} deg (점 {n}개)")
-        assert abs(est_deg - tilt_deg) < 1.0, f"오차가 너무 큼: 실제 {tilt_deg}, 추정 {est_deg}"
+        print(f"true tilt={tilt_deg:+.1f} deg -> estimated angle_error={est_deg:+.2f} deg (n={n})")
+        assert abs(est_deg - tilt_deg) < 1.0, f"error too large: true {tilt_deg}, estimated {est_deg}"
 
     # 점이 거의 없는 경우 None을 반환하는지 확인
     empty = np.zeros((10, 3), dtype=np.float32)
     angle_error, n = estimate_front_wall_angle_error(empty)
     assert angle_error is None and n == 0
 
-    print("[OK] wall_alignment 합성 데이터 검증 통과")
+    print("[OK] wall_alignment synthetic-data check passed")
 
 
 if __name__ == '__main__':
