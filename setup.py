@@ -57,6 +57,7 @@ setup(
     entry_points={
         'console_scripts': [
             'mission_executor = mission_execution.mission_executor:main',
+            'imu_tilt_broadcaster = mission_execution.imu_tilt_broadcaster:main',
             'surface_profiler = surface_profiling.surface_profiler:main',
         ],
     },

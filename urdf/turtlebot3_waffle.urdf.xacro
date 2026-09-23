@@ -59,12 +59,22 @@
     <color rgba="1.0 1.0 1.0 1.0"/>
   </material>
 
-  <link name="${namespace}base_footprint"/>
+  <!-- base_footprint는 URDF에 없음 - imu_tilt_broadcaster가 IMU 실측 roll/pitch로
+       base_footprint->base_link TF를 직접 발행함(물리엔진에 새 자유도를 만들지
+       않기 위해 URDF 조인트 대신 tf2 브로드캐스트로 처리, odom->base_footprint를
+       diff_drive 플러그인이 URDF 밖에서 발행하는 것과 같은 패턴). 원래 이 조인트가
+       갖던 고정 오프셋(xyz 0 0 0.010, rpy 0 0 0)은 그 노드가 그대로 씀.
 
-  <joint name="${namespace}base_joint" type="fixed">
-    <parent link="${namespace}base_footprint"/>
-    <child link="${namespace}base_link" />
-    <origin xyz="0 0 0.010" rpy="0 0 0"/>
+       base_link_root는 KDL/Gazebo가 요구하는 "질량 없는 루트 링크" 자리만
+       채우는 더미임(질량 있는 base_link를 URDF 루트로 두면 gzserver가 죽음) -
+       base_footprint와 이름이 겹치지 않아 TF 발행 주체가 로봇 밖 노드 하나로
+       명확히 고정됨. -->
+  <link name="${namespace}base_link_root"/>
+
+  <joint name="${namespace}base_link_root_joint" type="fixed">
+    <parent link="${namespace}base_link_root"/>
+    <child link="${namespace}base_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
   </joint>
 
   <link name="${namespace}base_link">

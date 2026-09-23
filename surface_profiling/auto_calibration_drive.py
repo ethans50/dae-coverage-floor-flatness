@@ -92,7 +92,9 @@ class CalibrationDriver(Node):
         pts = self.wait_fresh_scan()
         if pts is None or len(pts) == 0:
             return None, 0
-        return estimate_front_wall_angle_error(pts)
+        return estimate_front_wall_angle_error(
+            pts, fov_deg=self.args.wall_fov_deg, r_min=self.args.wall_r_min,
+            r_max=self.args.wall_r_max, min_points=self.args.wall_min_points)
 
     def align_to_wall(self, jetson):
         """정면 벽에 수직으로 서도록 폐루프로 미세 회전함."""
@@ -175,6 +177,13 @@ def main():
     ap.add_argument('--align-max-iters', type=int, default=15)
     ap.add_argument('--align-max-step-rad', type=float, default=np.radians(15),
                      help='Max angle to correct in a single rotation step (rad) - avoids one big overcorrection')
+    ap.add_argument('--wall-r-max', type=float, default=5.0,
+                     help='Max wall distance counted for angle detection (m) - set higher than the '
+                          'wall distance scan_room_for_calibration.py reported for this room')
+    ap.add_argument('--wall-r-min', type=float, default=0.5, help='Min wall distance counted (m)')
+    ap.add_argument('--wall-fov-deg', type=float, default=70.0, help='Field of view centered on the front (deg)')
+    ap.add_argument('--wall-min-points', type=int, default=200,
+                     help='Min wall points required to trust the angle estimate')
     ap.add_argument('--dry-run', action='store_true',
                      help='Print the procedure without sending real move/rotate commands over SSH '
                           '(capture services are still called for real)')

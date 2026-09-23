@@ -188,9 +188,12 @@ Stand the LiDAR anywhere in the room and run this. It collects a few seconds of 
 
 **Step 2: automated four-heading calibration drive**
 
+Every mode but `--detect-only` calls the capture services for real (so does `--dry-run`), so the real-robot 6 terminals from section 2-1 (T1 Jetson bringup, T2 Nav2/AMCL, T4 Velodyne, T5 `surface_profiling.launch.py`) must already be up.
+
 ```bash
 # First confirm the wall-angle detector gives a sane sign in this room (nudge the robot by hand)
-python3 surface_profiling/auto_calibration_drive.py --detect-only
+# --wall-r-max should exceed the wall distance step 1 printed (raise it further for a bigger room than the 5m default covers)
+python3 surface_profiling/auto_calibration_drive.py --detect-only --wall-r-max 6.0
 
 # Walk through the whole procedure without actually moving
 python3 surface_profiling/auto_calibration_drive.py --reverse-m 1.5 --forward-m 3.0 --dry-run

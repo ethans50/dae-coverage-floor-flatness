@@ -29,6 +29,7 @@ from launch.actions import (
 )
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import EnvironmentVariable, LaunchConfiguration
+from launch_ros.actions import Node
 
 # params.yaml을 못 읽을 때만 쓰는 폴백. 다른 진입점들이 쓰는 값과 맞춰둠.
 FALLBACK_DAE_FILE = 'INU_9_211.dae'
@@ -133,7 +134,16 @@ def _launch_setup(context, *args, **kwargs):
         }.items()
     )
 
-    return [gzserver_cmd, gzclient_cmd, robot_state_publisher_cmd, spawn_turtlebot_cmd]
+    imu_tilt_broadcaster_cmd = Node(
+        package='dae_coverage_floor_flatness',
+        executable='imu_tilt_broadcaster',
+        name='imu_tilt_broadcaster',
+        output='screen',
+        parameters=[{'use_sim_time': use_sim_time}]
+    )
+
+    return [gzserver_cmd, gzclient_cmd, robot_state_publisher_cmd, spawn_turtlebot_cmd,
+            imu_tilt_broadcaster_cmd]
 
 
 def generate_launch_description():

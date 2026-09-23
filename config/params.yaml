@@ -66,9 +66,9 @@ mission_planner:
   # mission_execution.enable_boundary_repass로 이미 토글 가능함.
   # 기본값(=평소/알고리즘3 "현재 알고리즘") 전부 true - 실험 후 반드시 이
   # 기본값으로 되돌릴 것.
-  enable_pendant_reorder: false       # 기본값 true. true=Step2.5 허브-pendant 재정렬 적용, false=적용 안 하고 Christofides 순서 그대로 씀
-  enable_entry_hint_ordering: false   # 기본값 true. true=노드 내 스와스 순서를 진입/진출 방향에 맞춰 정렬, false=방향과 무관하게 고정 순서로 정렬 (위와 동일)
-  enable_path_simplification: false   # 기본값 true. true=A* transit 경로의 계단현상 제거(Douglas-Peucker) 적용, false=적용 안 해서 계단현상이 그대로 남음 (위와 동일)
+  enable_pendant_reorder: true       # 기본값 true. true=Step2.5 허브-pendant 재정렬 적용, false=적용 안 하고 Christofides 순서 그대로 씀
+  enable_entry_hint_ordering: true   # 기본값 true. true=노드 내 스와스 순서를 진입/진출 방향에 맞춰 정렬, false=방향과 무관하게 고정 순서로 정렬 (위와 동일)
+  enable_path_simplification: true   # 기본값 true. true=A* transit 경로의 계단현상 제거(Douglas-Peucker) 적용, false=적용 안 해서 계단현상이 그대로 남음 (위와 동일)
 
   # [알고리즘 비교 실험용 토글] 3-way 비교(CentroidOnly/AllOff/Ours) 전용임.
   # 위 3개 토글 + mission_execution.enable_boundary_repass와 함께 조합해 사용함.
@@ -76,7 +76,7 @@ mission_planner:
   # 실험 중 아래를 바꿨다면 실험이 끝나는 대로 반드시 이 기본값으로 되돌릴 것 -
   # 안 그러면 이후 모든 정상 미션이 조용히 centroid_only/zigzag 모드로 계속 돎. ***
   coverage_mode: "full"       # 기본값 "full". "full"=F2C로 노드 전체를 커버리지 스와스로 훑음, "centroid_only"=스와스 생성 없이 노드 중앙점 1점만 방문
-  enable_optimal_swath_angle: false    # 기본값 true. true=wide 노드에서 generateBestSwaths로 최적 각도 자동탐색, false=각도 탐색 없이 0도 고정 스와스 (위와 동일)
+  enable_optimal_swath_angle: true    # 기본값 true. true=wide 노드에서 generateBestSwaths로 최적 각도 자동탐색, false=각도 탐색 없이 0도 고정 스와스 (위와 동일)
 
 # ==============================================================================
 # [3. Mission Execution - Robot Driving & Tracking Component]
@@ -100,6 +100,11 @@ mission_execution:
   rotate_aim_min_dist_m: 0.15    # sub-segment 주행 전 회전 시 조준할 점을 고르는 최소 거리. 이보다 가까운 점은 atan2가 노이즈가 되므로 건너뜀
   spin_time_allowance_sec: 15.0
   tf_lookup_retry_sec: 1.0       # map->base_link TF 조회 실패 시 재시도할 최대 시간(초). 버퍼/리스너 생성 직후처럼 TF 이력이 아직 얕을 때의 일시적 ExtrapolationException을 흡수함.
+
+  # imu_tilt_broadcaster가 IMU orientation에서 뺀 뒤 base_footprint->base_link TF에
+  # 싣는 고정 바이어스(deg, [roll, pitch]). 실측 전이라 기본값 0 - 정지 상태 IMU
+  # 바이어스를 측정해 채워야 함(lidar_mount_correction_rpy_deg와 같은 패턴).
+  imu_mount_correction_rpy_deg: [0.0, 0.0]
 
   initial_pose_max_yaw_error_deg: 30.0  # AMCL 초기화 검증 시 위치는 맞아도 heading이 이보다 벌어지면 실패 처리. 실제 로봇을 출력된 runway heading과 다르게 놓으면 map->odom TF가 회전된 채 굳어 주행 전체가 삐뚤어짐(위치 오차 체크만으로는 못 잡히던 결함).
 
@@ -221,7 +226,7 @@ surface_profiling:
   # 제안값을 그대로 넣음. 보정 후 같은 스크립트로 pitch/roll이 0에 가까워졌는지 확인함.
   # sim은 차체 정적 기울기로 측정했고, real은 실측 전이라 0으로 둠.
   lidar_mount_correction_rpy_deg_sim: [0.0, -0.146, 0.0]
-  lidar_mount_correction_rpy_deg_real: [0.303, -0.293, 0.0]
+  lidar_mount_correction_rpy_deg_real: [0.351, -0.396, 0.0]
 
   # [Frame-level Log & Accumulation Video]
   # 다운샘플 이전의 map 좌표 점을 프레임(stamp, 센서 pose, 캡처 여부, 저역통과 기각

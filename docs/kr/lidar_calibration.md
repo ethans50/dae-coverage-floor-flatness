@@ -187,9 +187,12 @@ python3 surface_profiling/scan_room_for_calibration.py --duration 6 --out room_p
 
 **2단계: 자동 4방향 캘리브레이션 주행**
 
+`--detect-only` 외의 모드는 캡처 서비스를 실제로 호출하므로(`--dry-run`도 마찬가지), 2-1절의 Real-world 6터미널(T1 Jetson bringup, T2 Nav2/AMCL, T4 Velodyne, T5 `surface_profiling.launch.py`)이 먼저 다 떠 있어야 함.
+
 ```bash
 # 먼저 벽 각도 검출기가 실제 방에서 타당한 부호로 나오는지 확인 (로봇을 직접 살짝 돌려보기)
-python3 surface_profiling/auto_calibration_drive.py --detect-only
+# --wall-r-max는 1단계에서 출력된 벽까지 거리보다 크게 잡을 것 (기본값 5m로는 부족한 넓은 방이면 상향)
+python3 surface_profiling/auto_calibration_drive.py --detect-only --wall-r-max 6.0
 
 # 전체 절차를 실제 이동 없이 훑어보기
 python3 surface_profiling/auto_calibration_drive.py --reverse-m 1.5 --forward-m 3.0 --dry-run
