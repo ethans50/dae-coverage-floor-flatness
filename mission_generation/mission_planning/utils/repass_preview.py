@@ -13,10 +13,12 @@ boundary repass(blind cone 보완)가 만들 지점을 planning 단계에서 px 
 
 import numpy as np
 
+from mission_planning.utils.ring_coverage import vlp16_ring_radii_m, exit_point_ring_count
+
 
 def compute_adjusted_exit(raw_points, enable_boundary_repass,
                           boundary_repass_distance_m, map_resolution,
-                          boundary_repass_max_segment_m=2.8):
+                          lidar_mount_height, boundary_repass_ring_min_count=2):
     """coverage 노드 하나(raw_points)의 실제 물리적 exit 지점 - F2C
     스와스 자체의 마지막 점(raw_points[-1])이 아니라, 실행 시
     BoundaryRepassController.run_exit_repass가 되짚기를 마친 뒤 로봇이
@@ -26,10 +28,14 @@ def compute_adjusted_exit(raw_points, enable_boundary_repass,
     동일한 기하 규칙을 따름: 마지막 다리(raw_points[-2:])의 heading을
     구하고, 왕복 거리는 설정값(boundary_repass_distance_m)과 그 다리
     길이의 90% 중 작은 쪽으로 clamp한 뒤, 그만큼 되짚어 물러난 지점을
-    계산함. enable_boundary_repass가 꺼져 있거나, 다리가 없거나(단일
-    점 방), clamp된 거리가 0.3m 미만이면(run_exit_repass 자신도 이 경우
-    되짚기 없이 즉시 캡처를 끄므로) 원래 F2C 종료 지점을 그대로
-    반환함 - 그 경우 로봇은 실제로 거기 그대로 있기 때문임.
+    계산함. 되짚기 필요 여부 자체는 exit 지점 자체의 n(x)(이 노드의 스와스
+    궤적 전체로 계산 - utils/ring_coverage.py, run_exit_repass와 동일 계산)가
+    boundary_repass_ring_min_count 이상이면 스킵함 - 이미 접근 과정에서
+    여러 ring이 그 지점을 훑고 지나갔다는 뜻이기 때문임. enable_boundary_repass가
+    꺼져 있거나, 다리가 없거나(단일 점 방), n(x)가 충분하거나, clamp된
+    거리가 0.3m 미만이면(run_exit_repass 자신도 이 경우 되짚기 없이 즉시
+    캡처를 끄므로) 원래 F2C 종료 지점을 그대로 반환함 - 그 경우 로봇은
+    실제로 거기 그대로 있기 때문임.
 
     Step3의 current_pos(다음 노드로 가는 transit A*의 실제 시작점)와
     _reorder_pendant_groups의 허브 anchor 양쪽에서 재사용함 - 로봇이
@@ -46,7 +52,14 @@ def compute_adjusted_exit(raw_points, enable_boundary_repass,
     seg_len_px = float(np.hypot(vec[0], vec[1]))
     if seg_len_px < 1e-6:
         return raw_points[-1]
-    if seg_len_px * map_resolution > boundary_repass_max_segment_m:
+
+    # 거리 비교는 픽셀 간 거리에 map_resolution(균일 스케일)만 곱하면 되므로
+    # (평행이동/반전은 유클리드 거리를 바꾸지 않음), origin/map_height 없이도
+    # geometry.pixel_to_meter와 동일한 거리를 얻음.
+    traj_m = np.array(raw_points, dtype=float) * map_resolution
+    ring_radii = vlp16_ring_radii_m(lidar_mount_height)
+    n_exit = exit_point_ring_count(traj_m, b * map_resolution, ring_radii)
+    if n_exit >= boundary_repass_ring_min_count:
         return raw_points[-1]
 
     d_px = boundary_repass_distance_m / map_resolution
@@ -61,7 +74,7 @@ def compute_adjusted_exit(raw_points, enable_boundary_repass,
 
 def build_preview(path_segments, enable_boundary_repass,
                   boundary_repass_distance_m, map_resolution,
-                  boundary_repass_max_segment_m=2.8):
+                  lidar_mount_height, boundary_repass_ring_min_count=2):
     """미션 실행 시 BoundaryRepassController가 만들 왕복 경로를 planning
     단계에서 근사해 시각화 전용으로 반환함. boundary_repass.py의 기하
     규칙(_offset_pose/_repass_distance_m)을 px 단위로 그대로 재현함.
@@ -147,10 +160,10 @@ def build_preview(path_segments, enable_boundary_repass,
         p_end = np.array(seg['path'][-1], dtype=float)
         retrace_raw = compute_adjusted_exit(seg['path'], enable_boundary_repass,
                                             boundary_repass_distance_m, map_resolution,
-                                            boundary_repass_max_segment_m)
+                                            lidar_mount_height, boundary_repass_ring_min_count)
         if retrace_raw is None or tuple(retrace_raw) == tuple(seg['path'][-1]):
             print(f"    [exit repass] {tag} SKIPPED - no repass applied "
-                  f"(disabled, segment longer than boundary_repass_max_segment_m, "
+                  f"(disabled, exit zone already observed by enough rings, "
                   f"or clamped distance too short).")
             continue
 

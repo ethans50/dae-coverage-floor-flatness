@@ -102,9 +102,10 @@ mission_execution:
   tf_lookup_retry_sec: 1.0       # map->base_link TF 조회 실패 시 재시도할 최대 시간(초). 버퍼/리스너 생성 직후처럼 TF 이력이 아직 얕을 때의 일시적 ExtrapolationException을 흡수함.
 
   # imu_tilt_broadcaster가 IMU orientation에서 뺀 뒤 base_footprint->base_link TF에
-  # 싣는 고정 바이어스(deg, [roll, pitch]). 실측 전이라 기본값 0 - 정지 상태 IMU
-  # 바이어스를 측정해 채워야 함(lidar_mount_correction_rpy_deg와 같은 패턴).
-  imu_mount_correction_rpy_deg: [0.0, 0.0]
+  # 싣는 고정 바이어스(deg, [roll, pitch], lidar_mount_correction_rpy_deg와 같은
+  # 패턴). 정지 상태에서 4헤딩(0/90/180/270도) 측정 후 평균한 값 - 단일 헤딩
+  # 측정은 바닥 기울기가 섞여 신뢰 안 함(라이다 마운트 보정과 같은 원리).
+  imu_mount_correction_rpy_deg: [-7.445, 2.372]
 
   initial_pose_max_yaw_error_deg: 30.0  # AMCL 초기화 검증 시 위치는 맞아도 heading이 이보다 벌어지면 실패 처리. 실제 로봇을 출력된 runway heading과 다르게 놓으면 map->odom TF가 회전된 채 굳어 주행 전체가 삐뚤어짐(위치 오차 체크만으로는 못 잡히던 결함).
 
@@ -115,14 +116,16 @@ mission_execution:
   # 한쪽만 메워짐(utils/boundary_repass.py 참고). 미션의 진짜 첫 지점은
   # "접근" 방향 시야가 아예 없어 별도로 run_start_prepass가 보완함.
   # blind cone이 없는 센서로 교체되면 false로 꺼서 완전히 비활성화 가능.
-  # 세그먼트 길이가 boundary_repass_max_segment_m 이하일 때만 실제로 되짚기를
-  # 수행함 - 충분히 긴 구간은 진입 시 여러 라이다 링이 순차적으로 훑고 지나가는
-  # 것만으로 완전성이 이미 확보되어 되짚기가 불필요함(utils/boundary_repass.py 참고).
+  # exit 지점 자체가 이미 boundary_repass_ring_min_count개 이상의 VLP-16
+  # ring에 관측됐을 때만 되짚기를 스킵함(접근 구간이 길수록 큰 반경의 ring도
+  # 접근 범위 안에 들어와 n(x)가 커짐) - 충분히 긴 구간은 진입 시 여러 라이다
+  # 링이 순차적으로 그 지점을 훑고 지나가 완전성이 이미 확보되므로 되짚기가
+  # 불필요함(utils/boundary_repass.py, utils/ring_coverage.py 참고).
   # 알고리즘 비교 실험에서 AllOff 조합에 쓰일 때만 false로 내리고, 실험 후
   # 반드시 true로 되돌릴 것(mission_planner의 coverage_mode/enable_optimal_swath_angle과 동일 규칙).
   enable_boundary_repass: true
   boundary_repass_distance_m: 3.0   # 왕복 거리 (m). blind_radius_m(약 1.26m)의 2배 이상이어야 blind cone을 충분히 덮어 다시 훑을 수 있음. 세그먼트가 이보다 짧으면 자동으로 세그먼트 길이에 맞춰 clamp됨.
-  boundary_repass_max_segment_m: 2.8   # 이보다 긴 exit 세그먼트는 되짚기 자체를 스킵함. blind_radius_m의 2배(약 2.52m)를 clamp 계수 0.9로 나눈 값 - 이보다 짧으면 boundary_repass_distance_m이 세그먼트 길이에 clamp되어 blind cone을 다 못 덮음.
+  boundary_repass_ring_min_count: 2   # exit 지점 자체가 몇 개의 VLP-16 ring에 관측되면 되짚기를 스킵할지. 실측 프레임 데이터로 ring 관측 개수별 "점이 하나도 안 찍힌 셀" 비율을 확인한 결과 n(x)=1은 91%, n(x)=2는 72%, n(x)=3부터는 61% 이하로 떨어져, 안전 마진을 두고 2를 최소 기준으로 둠.
 
   # [Stall Logging] nav2 goToPose/goThroughPoses/Spin feedback을 blocking 대기
   # 루프 안에서 계속 폴링해, 진행 지표(distance_remaining/angular_distance_traveled)가
@@ -214,8 +217,8 @@ surface_profiling:
   # z 창도 대칭으로 잡아야 함 - 하단을 자르면 완전성과 평탄도가 함께 치우침.
   # 이 두 값은 완전성 계산뿐 아니라 combined_filtered_*.pcd
   # 생성과 평탄도 히트맵에도 그대로 쓰이므로 바닥 피크를 대칭으로 감싸야 함.
-  z_min: -0.010         # (m) -2.5cm. 바닥 피크 하단(-0.024)을 포함시킴.
-  z_max: 0.010          # (m) +3.0cm. 바닥 피크 상단보다 여유를 둬 볼록한 요철까지 담음.
+  z_min: -0.025         # (m) -2.5cm. 바닥 피크 하단(-0.024)을 포함시킴.
+  z_max: 0.025          # (m) +2.5cm. z_min과 대칭으로 잡아 볼록/오목 요철을 동일한 여유로 담음.
   # 상한을 올릴수록 벽/물체 하단의 배경 점이 벽 근처 셀에 섞일 수 있음.
   # z-이상치 삽입 실험 시에는 주입할 결함 높이가 이 상한에 잘리지 않는지 확인할 것.
 

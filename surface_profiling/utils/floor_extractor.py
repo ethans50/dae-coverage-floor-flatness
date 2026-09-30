@@ -37,6 +37,6 @@ def extract_floor_by_height(pcd_path, output_path, z_min=-0.005, z_max=0.035, z_
 
     o3d.io.write_point_cloud(output_path, pcd_filtered)
 
-    print(f"[*] 원본 포인트: {len(points)}, 필터링 후 포인트: {len(filtered_points)}")
+    print(f"[*] 원본 point: {len(points)}, 필터링 후 point: {len(filtered_points)}")
     print(f"[+] Saved floor-filtered PCD: {output_path}")
     return output_path

@@ -14,7 +14,7 @@ class MissionPlanner:
     # 파라미터 업데이트
     def __init__(self, topomap_path, visualization_dir="./debug", robot_width=0.28, path_safety_margin=0.25, lidar_range=8.4, overlap=0.2, turn_weight=2.0, wall_weight=5.0, lidar_mount_height=0.338, lidar_vertical_fov_deg=15.0,
              blind_radius_m=None, boundary_repass_distance_m=1.5, enable_boundary_repass=True,
-             boundary_repass_max_segment_m=2.8,
+             boundary_repass_ring_min_count=2,
              enable_pendant_reorder=True, enable_entry_hint_ordering=True, enable_path_simplification=True,
              coverage_mode="full", enable_optimal_swath_angle=True, **kwargs):
         if not os.path.exists(topomap_path):
@@ -43,7 +43,8 @@ class MissionPlanner:
         # 바꿈 - planning-실행 값 불일치 시 위험.
         self.boundary_repass_distance_m = boundary_repass_distance_m
         self.enable_boundary_repass = enable_boundary_repass
-        self.boundary_repass_max_segment_m = boundary_repass_max_segment_m
+        self.boundary_repass_ring_min_count = boundary_repass_ring_min_count
+        self.lidar_mount_height = lidar_mount_height
 
         # ablation 실험용 토글 3종 - 각 메커니즘의 기여도를 개별적으로 끄고
         # 측정하기 위함. 기본값은 모두 True(현재
@@ -194,7 +195,7 @@ class MissionPlanner:
         return repass_preview.compute_adjusted_exit(
             raw_points, self.enable_boundary_repass,
             self.boundary_repass_distance_m, self.map_resolution,
-            self.boundary_repass_max_segment_m)
+            self.lidar_mount_height, self.boundary_repass_ring_min_count)
 
     def _reorder_pendant_groups(self, tsp_sequence, detailed_sequence, node_waypoints):
         """허브에 매달린 pendant 노드들의 방문 순서만 국소적으로 다듬음 -
@@ -503,7 +504,7 @@ class MissionPlanner:
         return repass_preview.build_preview(
             self.path_segments, self.enable_boundary_repass,
             self.boundary_repass_distance_m, self.map_resolution,
-            self.boundary_repass_max_segment_m)
+            self.lidar_mount_height, self.boundary_repass_ring_min_count)
 
     def plan(self, save_debug=True, show_plot=False, output_dir=None):
         # output_dir 미지정 시, 현재 작업 디렉토리(cwd)에 의존하는 상대경로

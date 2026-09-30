@@ -50,7 +50,7 @@ def _resolve_default_map_path(pkg_share):
         workspace_root = config.get('global', {}).get('workspace_root', workspace_root)
         grid_dir = config.get('environment_modeling', {}).get('output_grid_dir', grid_dir)
     except Exception as e:
-        print(f'[tb3_waffle_nav2.launch] params.yaml을 읽지 못해 기본 경로로 폴백함: {e}')
+        print(f'[tb3_waffle_nav2.launch] params.yaml을 읽지 못해 기본 경로로 폴백: {e}')
     return os.path.join(os.path.expanduser(workspace_root), grid_dir, MAP_FILENAME)
 
 

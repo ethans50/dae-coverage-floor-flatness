@@ -113,4 +113,12 @@ def generate_launch_description():
                 {'namespace': namespace}],
             arguments=['-i', usb_port],
             output='screen'),
+
+        # IMU 실측 roll/pitch를 base_footprint->base_link TF에 주입 (imu_tilt_broadcaster.py 참고)
+        Node(
+            package='dae_coverage_floor_flatness',
+            executable='imu_tilt_broadcaster',
+            name='imu_tilt_broadcaster',
+            output='screen',
+            parameters=[{'use_sim_time': use_sim_time}]),
     ])

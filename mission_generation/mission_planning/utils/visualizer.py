@@ -162,7 +162,7 @@ def _render_full_viz(nodes, path_segments, global_mask, map_resolution=None):
                     rot_deg = _signed_delta_deg(heading_deg, wall_ref_deg)
                     rot_dir = 'CCW' if rot_deg >= 0 else 'CW'
 
-                    print(f"    [start prepass] 배치 안내: 가장 가까운 벽({nearest_wall_side})을 "
+                    print(f"    [start prepass] 배치 가이드: 가장 가까운 벽({nearest_wall_side})을 "
                           f"정면으로 마주보고 선 상태에서 {rot_dir} 방향으로 {abs(rot_deg):.0f}° 회전 "
                           f"(map heading={heading_deg:.0f}°, 0°=East/+X, 90°=North/+Y 기준). "
                           f"동서 최단거리={dist_cm[ew_side]:.0f}cm({ew_side}), "

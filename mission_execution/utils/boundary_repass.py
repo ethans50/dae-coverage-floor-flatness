@@ -20,13 +20,14 @@ run_exit_repass가 왔던 방향으로 짧게 되짚어 재통과시켜 반대 �
 명시적으로 보장함. 왕복 구간이 세그먼트 자체가 지나가는 길 안에 있으므로
 별도의 벽 근접/안전마진 계산이 필요 없음.
 
-다만 이 되짚기는 세그먼트 길이가 `boundary_repass_max_segment_m`(기본 2.8m
-= blind_radius_m의 2배를 0.9로 나눈 값) 이하일 때만 실행함. 세그먼트가
-충분히 길면, 진입 구간에서 라이다 링(채널)마다 반경이 달라 로봇이 접근하는
-동안 이미 여러 링이 순차적으로 같은 지점을 훑고 지나가므로, 명시적 되짚기
-없이도 실측 완전성(completeness) 지표가 이미 충분히 높게 나옴 - 다만 이건
-같은 방향에서 온 여러 번의 관측이라 센서 마운트 편향(pitch/roll)을 상쇄하는
-효과는 없고, 순수 "그 셀에 점이 있는가"만 보는 완전성 지표에만 해당함.
+다만 이 되짚기는 exit 지점 자체의 n(x)(그 지점을 지나가는 VLP-16 ring
+개수 - utils/ring_coverage.py 참고, 접근 구간의 길이로 결정됨)가
+`boundary_repass_ring_min_count` 미만일 때만 실행함. 세그먼트가 충분히 길면,
+진입 구간에서 라이다 링(채널)마다 반경이 달라 로봇이 접근하는 동안 이미 여러
+링이 순차적으로 그 구간을 훑고 지나가므로, 명시적 되짚기 없이도 실측
+완전성(completeness) 지표가 이미 충분히 높게 나옴 - 다만 이건 같은 방향에서
+온 여러 번의 관측이라 센서 마운트 편향(pitch/roll)을 상쇄하는 효과는 없고,
+순수 "그 셀에 점이 있는가"만 보는 완전성 지표에만 해당함.
 
 blind cone이 없는 센서로 교체되면 이 보정 자체가 불필요해질 수 있음(단,
 바닥 요철에 의한 시야 차폐는 blind cone과 별개로 남으므로, 새 센서로 단일
@@ -38,6 +39,11 @@ blind cone이 없는 센서로 교체되면 이 보정 자체가 불필요해질
 import math
 
 from geometry_msgs.msg import PoseStamped
+
+try:
+    from utils.ring_coverage import vlp16_ring_radii_m, exit_point_ring_count
+except ImportError:
+    from mission_execution.utils.ring_coverage import vlp16_ring_radii_m, exit_point_ring_count
 
 
 class BoundaryRepassController:
@@ -192,13 +198,15 @@ class BoundaryRepassController:
             ex._capture_active = False
             return
 
-        max_seg_m = cfg.get('boundary_repass_max_segment_m', 2.8)
-        p0_check, p1_check = seg_poses[0].pose.position, seg_poses[-1].pose.position
-        seg_len_check = math.hypot(p1_check.x - p0_check.x, p1_check.y - p0_check.y)
-        if seg_len_check > max_seg_m:
-            print(f"  [BoundaryRepass] Exit segment long enough ({seg_len_check:.2f}m >= "
-                  f"{max_seg_m:.2f}m) that the forward pass's own multi-ring sweep already "
-                  "covers this exit - skipping repass.")
+        min_ring_count = cfg.get('boundary_repass_ring_min_count', 2)
+        lidar_mount_height = ex.mission_planner_cfg.get('lidar_mount_height', 0.338)
+        ring_radii = vlp16_ring_radii_m(lidar_mount_height)
+        traj_xy = [(p.pose.position.x, p.pose.position.y) for p in seg_poses]
+        exit_xy = (seg_poses[-1].pose.position.x, seg_poses[-1].pose.position.y)
+        n_exit = exit_point_ring_count(traj_xy, exit_xy, ring_radii)
+        if n_exit >= min_ring_count:
+            print(f"  [BoundaryRepass] Exit point already observed by {n_exit} ring(s) "
+                  f"(>= {min_ring_count}) during the forward pass - skipping repass.")
             ex._call_capture_service(ex.stop_capture_client, "stop_waypoint_capture")
             ex._capture_active = False
             return

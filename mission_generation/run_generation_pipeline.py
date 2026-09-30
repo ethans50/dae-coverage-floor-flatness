@@ -41,7 +41,7 @@ def _snapshot_planning_outputs(label, workspace_root, grid_dir, map_yaml_path, t
             if os.path.exists(image_path):
                 shutil.copy2(image_path, dst_grid_dir)
     else:
-        print(f"[!] Warning: snapshot 대상 맵 파일이 없어 건너뜀: {map_yaml_path}")
+        print(f"[!] Warning: snapshot 대상 map file이 없어 건너뜀: {map_yaml_path}")
 
     # 2. 공간 분할 토폴로지
     dst_topology_dir = os.path.join(eval_root, os.path.relpath(topology_dir, workspace_root))
@@ -49,7 +49,7 @@ def _snapshot_planning_outputs(label, workspace_root, grid_dir, map_yaml_path, t
     if os.path.exists(topology_file):
         shutil.copy2(topology_file, dst_topology_dir)
     else:
-        print(f"[!] Warning: snapshot 대상 토폴로지 파일이 없어 건너뜀: {topology_file}")
+        print(f"[!] Warning: snapshot 대상 topology file이 없어 건너뜀: {topology_file}")
 
     # 3. 최종 경로 + planning 시점 파라미터 사이드카
     dst_metric_dir = os.path.join(eval_root, os.path.relpath(metric_dir, workspace_root))
@@ -70,7 +70,7 @@ def _snapshot_planning_outputs(label, workspace_root, grid_dir, map_yaml_path, t
             dst_vis_dir = os.path.join(eval_root, os.path.relpath(vis_dir, workspace_root))
             shutil.copytree(vis_dir, dst_vis_dir, dirs_exist_ok=True)
         else:
-            print(f"[!] Warning: snapshot 대상 시각화 폴더가 없어 건너뜀: {vis_dir}")
+            print(f"[!] Warning: snapshot 대상 visualization 폴더가 없어 건너뜀: {vis_dir}")
 
     print(f"[+] Snapshot saved to: {eval_root}")
 
@@ -126,7 +126,7 @@ def run_generation_pipeline(snapshot_label=None):
     mission_exec_cfg = config.get('mission_execution', {})
     boundary_repass_distance_m = mission_exec_cfg.get('boundary_repass_distance_m', 1.5)
     enable_boundary_repass = mission_exec_cfg.get('enable_boundary_repass', True)
-    boundary_repass_max_segment_m = mission_exec_cfg.get('boundary_repass_max_segment_m', 2.8)
+    boundary_repass_ring_min_count = mission_exec_cfg.get('boundary_repass_ring_min_count', 2)
 
     # 시각화 디렉토리 경로 - regenerate 여부와 무관하게 스냅샷 시점에 항상
     # 필요하므로 여기서 미리 계산해둠(mission_cfg.pop은 아래 regenerate
@@ -188,7 +188,7 @@ def run_generation_pipeline(snapshot_label=None):
                 lidar_vertical_fov_deg=lidar_vertical_fov_deg,
                 boundary_repass_distance_m=boundary_repass_distance_m,
                 enable_boundary_repass=enable_boundary_repass,
-                boundary_repass_max_segment_m=boundary_repass_max_segment_m,
+                boundary_repass_ring_min_count=boundary_repass_ring_min_count,
                 **mission_cfg
             )
             
@@ -226,7 +226,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--snapshot-label", type=str, default=None,
         help="알고리즘 비교 실험용 - 주어지면 이번에 쓰인 맵/토폴로지/final_path를 "
-             "<workspace_root>/eval_runs/<라벨>/에 복사해둠. 안 주면(기본값) 기본 동작과 동일함."
+             "<workspace_root>/eval_runs/<라벨>/에 복사해둠. 안 주면(기본값) 기본 동작과 동일."
     )
     args = parser.parse_args()
     run_generation_pipeline(snapshot_label=args.snapshot_label)
