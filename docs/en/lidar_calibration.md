@@ -289,5 +289,5 @@ Sign convention: `pitch` follows the URDF joint rpy convention (positive rotates
 ## 5. Limitations
 
 - The plane fit assumes a flat floor, so calibrating on the very floor whose flatness is to be measured is circular. The four-heading average reduces this because the floor's slope does not rotate with the robot.
-- Only a **fixed** offset is corrected. Dynamic tilt, such as the chassis tilting while crossing a defect, is not corrected (the current TF is planar and carries no roll/pitch).
+- Only a **fixed** offset is corrected. Dynamic tilt, such as the chassis tilting while crossing a defect, is not corrected (without the IMU TF the TF is planar and carries no roll/pitch). IMU-based correction and its verification are in [imu_calibration.md](imu_calibration.md); if the IMU setting changes, redo this LiDAR correction.
 - The usable range (1.2-3.5 m) and the minimum points per frame (300) are defaults; adjust `--r-min`, `--r-max` and `--min-points` for other sensors or mount heights.
