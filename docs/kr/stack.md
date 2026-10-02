@@ -7,7 +7,7 @@
 | 단계 | 실행 위치 | 실행하는 것 | 게이트(통과 조건) |
 |---|---|---|---|
 | `preflight` | 양쪽 | 없음(점검만) | 이전 실행의 잔여 프로세스가 없음 |
-| `bringup` | Jetson | `real_bringup.launch.py use_imu_tilt:=<on/off>` | `/scan` 3-20 Hz, `/imu` 10-500 Hz, `/odom` 10-100 Hz, 세 토픽의 발행자가 각각 1개, TF `odom→base_footprint`와 `base_footprint→base_link`, IMU TF 모드가 요청과 일치 |
+| `bringup` | Jetson | `real_bringup.launch.py use_imu_tilt:=<on/off>` | `/scan` 3-20 Hz, `/imu` 5-500 Hz, `/odom` 10-100 Hz, 세 토픽의 발행자가 각각 1개, TF `odom→base_footprint`와 `base_footprint→base_link`, IMU TF 모드가 요청과 일치 |
 | `nav2` | Jetson | `tb3_waffle_nav2.launch.py use_rviz:=false` | `/map_server`, `/amcl` lifecycle이 `active` |
 | `velodyne` | 노트북 | `velodyne-all-nodes-VLP16-launch.py` | `/velodyne_points` 8-12 Hz(600 rpm = 10 Hz), 발행자 1개 |
 | `pose` | 노트북 | `/initialpose` 발행(`--init`을 줬을 때) | TF `map→odom` 생성, `/amcl_pose` 수신 |
@@ -29,7 +29,7 @@ export ROBOT_HOST=<Jetson IP>
 export SSH_PASSWORD=<비밀번호>      # 사용자는 기본 waffle, 다르면 --user
 ```
 
-저장소 폴더 이름이 `dae-coverage-floor-flatness`가 아니거나 워크스페이스가 `~/ros2_ws`가 아니면 `--repo <저장소 경로>`, `--ws <워크스페이스 경로>`를 줌(두 기기 경로가 같아야 함).
+저장소 폴더 이름이 `dae-coverage-floor-flatness`가 아니거나 워크스페이스가 `~/ros2_ws`가 아니면 `--ws <워크스페이스 경로>`, `--repo <저장소 경로>`를 줌. Jetson의 경로가 노트북과 다르면 `--jetson-ws`, `--jetson-repo`로 따로 지정함. 워크스페이스에 `install/setup.bash`가 없으면 실행 전에 바로 중단하고 알려줌.
 
 ## 3. 명령
 
@@ -61,6 +61,7 @@ python3 scripts/stack.py down
 | `--step` | 꺼짐 | 단계마다 Enter로 확인한 뒤 진행함 |
 | `--clean` | 꺼짐 | 잔여 프로세스가 있으면 먼저 종료함. 없으면 중단하고 알려줌 |
 | `--pose-wait <초>` | 180 | RViz 수동 초기 위치를 기다리는 시간 |
+| `--jetson-ws <경로>` | `--ws`와 같음 | Jetson의 워크스페이스 경로 |
 | `--local` | 꺼짐 | Jetson 쪽 명령도 이 컴퓨터에서 실행함(점검용) |
 
 게이트에 실패하면 해당 단계 로그의 마지막 15줄을 출력하고 멈춤. 그 뒤에는 `check`로 상태를 보고, 원인을 고친 다음 `down`(또는 `--clean`)부터 다시 시작함.

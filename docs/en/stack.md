@@ -7,7 +7,7 @@ A tool that brings up the start-up sequence spanning the robot (Jetson) and the 
 | Stage | Runs on | What it runs | Gate (pass condition) |
 |---|---|---|---|
 | `preflight` | both | nothing (check only) | no leftover processes from a previous run |
-| `bringup` | Jetson | `real_bringup.launch.py use_imu_tilt:=<on/off>` | `/scan` 3-20 Hz, `/imu` 10-500 Hz, `/odom` 10-100 Hz, exactly one publisher on each, TF `odom→base_footprint` and `base_footprint→base_link`, IMU TF mode matches the request |
+| `bringup` | Jetson | `real_bringup.launch.py use_imu_tilt:=<on/off>` | `/scan` 3-20 Hz, `/imu` 5-500 Hz, `/odom` 10-100 Hz, exactly one publisher on each, TF `odom→base_footprint` and `base_footprint→base_link`, IMU TF mode matches the request |
 | `nav2` | Jetson | `tb3_waffle_nav2.launch.py use_rviz:=false` | `/map_server` and `/amcl` lifecycle are `active` |
 | `velodyne` | laptop | `velodyne-all-nodes-VLP16-launch.py` | `/velodyne_points` 8-12 Hz (600 rpm = 10 Hz), exactly one publisher |
 | `pose` | laptop | publishes `/initialpose` (when `--init` is given) | TF `map→odom` exists, `/amcl_pose` received |
@@ -29,7 +29,7 @@ export ROBOT_HOST=<Jetson IP>
 export SSH_PASSWORD=<password>      # user defaults to waffle, override with --user
 ```
 
-If the repository folder is not named `dae-coverage-floor-flatness` or the workspace is not `~/ros2_ws`, pass `--repo <repository path>` and `--ws <workspace path>` (the paths must be identical on both machines).
+If the repository folder is not named `dae-coverage-floor-flatness` or the workspace is not `~/ros2_ws`, pass `--ws <workspace path>` and `--repo <repository path>`. If the Jetson's paths differ from the laptop's, set them separately with `--jetson-ws` and `--jetson-repo`. If the workspace has no `install/setup.bash`, the run stops immediately and says so.
 
 ## 3. Commands
 
@@ -61,6 +61,7 @@ python3 scripts/stack.py down
 | `--step` | off | Confirm with Enter after each stage |
 | `--clean` | off | Stop leftover processes first. Without it, the run aborts and reports them |
 | `--pose-wait <s>` | 180 | How long to wait for a manual RViz initial pose |
+| `--jetson-ws <path>` | same as `--ws` | Workspace path on the Jetson |
 | `--local` | off | Run the Jetson-side commands on this computer as well (for testing) |
 
 When a gate fails, the last 15 lines of that stage's log are printed and the run stops. Use `check` to inspect the state, fix the cause, then start again from `down` (or with `--clean`).

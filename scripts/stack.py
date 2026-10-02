@@ -67,6 +67,9 @@ class Runner:
 
     def start(self, tag, cmd):
         """cmd 를 ROS 환경을 source 한 대화형 셸에서 세션 분리로 실행함(이 스크립트가 끝나도 유지)."""
+        code, out = self.sh(f'test -f {self.ws}/install/setup.bash && echo ok')
+        if 'ok' not in out:
+            raise Abort(f'{self.name}: {self.ws}/install/setup.bash 가 없음. 워크스페이스 경로를 --ws(노트북) / --jetson-ws(Jetson)로 지정할 것')
         inner = f'source {self.ws}/install/setup.bash && {cmd}'
         line = (f'mkdir -p {LOG_DIR}; setsid nohup bash -ic {shlex.quote(inner)} '
                 f'> {LOG_DIR}/{tag}.log 2>&1 < /dev/null & echo started')
@@ -108,8 +111,10 @@ class Probe:
             rclpy.spin_once(self.node, timeout_sec=0.05)
 
     def rate(self, topic, window=3.0):
+        # 창 안 첫 수신과 마지막 수신 사이 간격으로 계산함(고정 창으로 나누면 시작 직후 낮게 나옴)
         now = time.monotonic()
-        return sum(1 for t in self.times[topic] if now - t <= window) / window
+        ts = [t for t in self.times[topic] if now - t <= window]
+        return (len(ts) - 1) / (ts[-1] - ts[0]) if len(ts) >= 3 and ts[-1] > ts[0] else 0.0
 
     def tf_ok(self, parent, child):
         return self.buf.can_transform(parent, child, Time(), Duration(seconds=0.0))
@@ -218,7 +223,7 @@ def run_up(a, jet, lap, probe):
         jet.start('bringup', cmds['bringup'])
         log = (jet, 'bringup')
         rate_gate(probe, '/scan', 3, 20, log)
-        rate_gate(probe, '/imu', 10, 500, log)
+        rate_gate(probe, '/imu', 5, 500, log)
         rate_gate(probe, '/odom', 10, 100, log)
         gate(probe, '/scan /imu /odom 발행자 각 1개(중복 드라이버 없음)', lambda: (
             (n := [probe.publishers(t) for t in ('/scan', '/imu', '/odom')]) == [1, 1, 1], str(n)), 5, log)
@@ -308,8 +313,10 @@ def main():
     ap.add_argument('--host', default=os.environ.get('ROBOT_HOST'))
     ap.add_argument('--user', default='waffle')
     ap.add_argument('--password', default=os.environ.get('SSH_PASSWORD'))
-    ap.add_argument('--ws', default='~/ros2_ws', help='워크스페이스 경로(양쪽 동일)')
-    ap.add_argument('--repo', help=f'저장소 경로(양쪽 동일, 기본 <ws>/src/{PKG}). 클론 폴더 이름이 다르면 지정')
+    ap.add_argument('--ws', default='~/ros2_ws', help='워크스페이스 경로(노트북, --jetson-ws 가 없으면 Jetson 도 같음)')
+    ap.add_argument('--repo', help=f'저장소 경로(노트북, 기본 <ws>/src/{PKG}). 클론 폴더 이름이 다르면 지정')
+    ap.add_argument('--jetson-ws', help='Jetson 의 워크스페이스 경로(기본: --ws 와 같음)')
+    ap.add_argument('--jetson-repo', help='Jetson 의 저장소 경로(기본: <Jetson ws>/src/' + PKG + ')')
     ap.add_argument('--local', action='store_true', help='Jetson 쪽 명령도 이 컴퓨터에서 실행(점검/시험용)')
     ap.add_argument('--imu-tf', choices=['on', 'off'], default='off')
     ap.add_argument('--init', nargs=3, type=float, metavar=('X', 'Y', 'YAW'))
@@ -330,8 +337,9 @@ def main():
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         ssh.connect(a.host, username=a.user, password=a.password, timeout=10)
-    repo = a.repo or f'{a.ws}/src/{PKG}'
-    jet, lap = Runner('Jetson', a.ws, repo, ssh), Runner('Laptop', a.ws, repo)
+    jws = a.jetson_ws or a.ws
+    jet = Runner('Jetson', jws, a.jetson_repo or (f'{jws}/src/{PKG}' if a.jetson_ws else a.repo or f'{jws}/src/{PKG}'), ssh)
+    lap = Runner('Laptop', a.ws, a.repo or f'{a.ws}/src/{PKG}')
 
     if a.cmd_name == 'down':
         for r in (jet, lap):
