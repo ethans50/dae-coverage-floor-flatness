@@ -233,7 +233,7 @@ Following an offline plan with a reactive local planner can produce stalls that 
 ## Repository structure
 
 ```
-dae_coverage_floor_flatness/
+dae-coverage-floor-flatness/
 ├── config/
 │   ├── params.yaml                    # all algorithm + execution parameters
 │   └── tb3_waffle_nav2_params.yaml    # Nav2 stack (costmaps, controllers, BT paths)
@@ -308,16 +308,16 @@ cd ~/ros2_ws/src/dae-coverage-floor-flatness/mission_generation
 python3 run_generation_pipeline.py
 
 # 1. Gazebo world + robot
-ros2 launch dae_coverage_floor_flatness sim_env.launch.py
+ros2 launch dae-coverage-floor-flatness sim_env.launch.py
 
 # 2. Nav2 + AMCL
-ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=true
+ros2 launch dae-coverage-floor-flatness tb3_waffle_nav2.launch.py use_sim_time:=true
 
 # 3. Floor measurement node
-ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true
+ros2 launch dae-coverage-floor-flatness surface_profiling.launch.py is_sim:=true
 
 # 4. Mission execution - always last
-ros2 launch dae_coverage_floor_flatness mission_execution.launch.py is_sim:=true
+ros2 launch dae-coverage-floor-flatness mission_execution.launch.py is_sim:=true
 ```
 
 **Real robot** (three machines; synchronise the Jetson and laptop clocks, e.g. with chrony, beforehand):
@@ -331,19 +331,25 @@ ros2 launch dae_coverage_floor_flatness mission_execution.launch.py is_sim:=true
 python3 run_generation_pipeline.py
 
 # 1. [Jetson] Robot bringup
-ros2 launch dae_coverage_floor_flatness real_bringup.launch.py
+ros2 launch dae-coverage-floor-flatness real_bringup.launch.py
 
 # 2. [Jetson] Nav2 + AMCL
-ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=false
+ros2 launch dae-coverage-floor-flatness tb3_waffle_nav2.launch.py use_sim_time:=false
 
 # 3. [Laptop] VLP-16 driver - confirm with `ros2 topic hz /velodyne_points` before moving on
 ros2 launch velodyne velodyne-all-nodes-VLP16-launch.py
 
 # 4. [Laptop] Floor measurement node
-ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=false
+ros2 launch dae-coverage-floor-flatness surface_profiling.launch.py is_sim:=false
 
 # 5. [Jetson] Mission execution - always last
-ros2 launch dae_coverage_floor_flatness mission_execution.launch.py is_sim:=false
+ros2 launch dae-coverage-floor-flatness mission_execution.launch.py is_sim:=false
+```
+
+Steps 1-4 can instead be started from the laptop with one command that waits for each stage's check to pass before starting the next (see the [stack launcher guide](docs/en/stack.md)); run step 5 afterwards:
+
+```bash
+python3 scripts/stack.py up --imu-tf off --init <X> <Y> <YAW>
 ```
 
 Why the order matters:

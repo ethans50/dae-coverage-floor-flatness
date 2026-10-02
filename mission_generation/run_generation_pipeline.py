@@ -82,7 +82,7 @@ def run_generation_pipeline(snapshot_label=None):
     print("=======================================================\n")
 
     try:
-        package_share_dir = get_package_share_directory('dae_coverage_floor_flatness')
+        package_share_dir = get_package_share_directory('dae-coverage-floor-flatness')
         config_path = os.path.join(package_share_dir, 'config', 'params.yaml')
     except Exception:
         # 현재 파일(__file__)의 부모 디렉터리(..)로 이동 후 config/params.yaml 추적

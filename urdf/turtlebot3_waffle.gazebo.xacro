@@ -6,7 +6,7 @@
   model.sdf in https://github.com/ROBOTIS-GIT/turtlebot3 (Copyright ROBOTIS
   CO., LTD.), licensed under the Apache License, Version 2.0
   (http://www.apache.org/licenses/LICENSE-2.0). Modified for
-  dae_coverage_floor_flatness: ported to xacro, and a VLP-16 gpu_ray plugin
+  dae-coverage-floor-flatness: ported to xacro, and a VLP-16 gpu_ray plugin
   was added.
 
   Gazebo 전용 플러그인 정의 파일. 로봇의 물리적 구조(joint/link)는 전혀 포함하지

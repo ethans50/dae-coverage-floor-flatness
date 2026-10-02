@@ -107,15 +107,14 @@ export LD_LIBRARY_PATH=/usr/local/lib:/opt/ros/humble/lib:$LD_LIBRARY_PATH
 
 `sim_env.launch.py` sets `GAZEBO_MODEL_PATH` itself from this package's `models/` directory, so you do not need to export it.
 
-Optional but recommended — a hard reset alias, since a leftover Gazebo or Nav2 process from a previous run is the most common cause of confusing behaviour:
+Optional but recommended: link the stop script onto your `PATH`, since a leftover Gazebo, Nav2 or driver process from a previous run is the most common cause of confusing behaviour. `scripts/stop_all.sh` stops the processes this package uses (robot driver, 2D and 3D LiDAR, Nav2, Gazebo, RViz and the package's own nodes) with SIGINT, then SIGTERM, then SIGKILL, and clears the ROS graph cache. Run it on the robot (Jetson) and on the laptop separately:
 
 ```bash
-alias rrr='ros2 daemon stop; \
-killall -9 gzserver gzclient; \
-pkill -9 -f ros2; pkill -9 -f fastdds; \
-pkill -9 -f robot_state_publisher; pkill -9 -f ekf; \
-pkill -9 -f nav2; pkill -9 -f rviz; pkill -9 -f spawn_entity.py'
+mkdir -p ~/.local/bin
+ln -sf ~/ros2_ws/src/dae-coverage-floor-flatness/scripts/stop_all.sh ~/.local/bin/rrr
 ```
+
+`rrr -l` only lists the targets without stopping anything, and `rrr -f` sends SIGKILL immediately.
 
 ---
 
@@ -394,10 +393,10 @@ Open `visualization/mission_generation/mission_planning/full_mission_path.png` a
 **Simulation** — four terminals:
 
 ```bash
-ros2 launch dae_coverage_floor_flatness sim_env.launch.py
-ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=true
-ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true
-ros2 launch dae_coverage_floor_flatness mission_execution.launch.py is_sim:=true
+ros2 launch dae-coverage-floor-flatness sim_env.launch.py
+ros2 launch dae-coverage-floor-flatness tb3_waffle_nav2.launch.py use_sim_time:=true
+ros2 launch dae-coverage-floor-flatness surface_profiling.launch.py is_sim:=true
+ros2 launch dae-coverage-floor-flatness mission_execution.launch.py is_sim:=true
 ```
 
 **Confirm the configuration actually in effect** — this reads `params.yaml` through exactly the same resolution path as the live pipeline:

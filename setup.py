@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 import glob
 import os
 
-package_name = 'dae_coverage_floor_flatness'
+package_name = 'dae-coverage-floor-flatness'
 
 
 def package_data_tree(src_dir):

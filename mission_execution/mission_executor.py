@@ -1,4 +1,4 @@
-# dae_coverage_floor_flatness/mission_execution/mission_executor.py
+# dae-coverage-floor-flatness/mission_execution/mission_executor.py
 
 import os
 import sys
@@ -40,7 +40,7 @@ class MissionExecutor(Nav2DriveMixin, LocalizationMixin, RunContextMixin, Node):
     Nav2 기반 미션 실행을 담당하는 ROS 2 노드.
 
     is_sim 여부는 ROS 2 파라미터(launch argument)로 주입받음. 예:
-    ros2 launch dae_coverage_floor_flatness mission_execution.launch.py is_sim:=true
+    ros2 launch dae-coverage-floor-flatness mission_execution.launch.py is_sim:=true
 
     주행 방식: final_path.json 전체를 방향(heading)이 바뀌는 지점 기준으로만
     재분할함(_split_into_straight_subsegments). coverage/transit 구분 없이

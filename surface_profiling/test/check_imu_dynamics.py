@@ -6,7 +6,7 @@ IMU roll/pitch 보정값 측정(정지)과 주행 중 검증을 한 스크립트
 서브커맨드 (모두 /imu 의 원시 orientation 을 쓰며 imu_mount_correction 은 차감하기 전 값임):
 
   static   정지 상태 N초 기록 -> 헤딩별 평균 저장. 4헤딩(90도 간격)이 모이면 평균을
-           imu_mount_correction_rpy_deg 후보([roll, pitch], deg)로 출력함.
+           imu_mount_correction_rpy_deg_real 후보([roll, pitch], deg)로 출력함.
            단일 헤딩은 바닥 기울기가 섞이므로 4헤딩 평균만 바이어스로 취급함.
   rotate   /odom yaw 를 보며 제자리에서 지정한 각도만큼 돌고 스스로 멈춤(헤딩 전환용, 개루프 명령의
            관성 초과 회전을 피함). 로봇 /cmd_vel 을 받을 수 있는 머신(Jetson 권장)에서 실행함.
@@ -141,12 +141,12 @@ def cmd_static(a):
         return
     r = np.array([store[str(h)]['roll'] for h in HEADINGS])
     p = np.array([store[str(h)]['pitch'] for h in HEADINGS])
-    print(f"\n[*] 4헤딩 평균 -> imu_mount_correction_rpy_deg: [{r.mean():.3f}, {p.mean():.3f}]")
+    print(f"\n[*] 4헤딩 평균 -> imu_mount_correction_rpy_deg_real: [{r.mean():.3f}, {p.mean():.3f}]")
     print(f"    헤딩 간 표준편차 roll {r.std():.3f}  pitch {p.std():.3f} deg")
     if max(r.std(), p.std()) > 0.5:
         print("    [!] 헤딩 간 편차가 0.5deg 초과 - 몸체 고정 바이어스가 아니라 바닥 기울기/필터 드리프트/"
               "자기장 등이 섞였을 수 있음. 측정 위치를 바꾸거나 시간을 두고 반복해 재현되는지 먼저 확인.")
-    print("    (주의) 이 값은 params.yaml 의 imu_mount_correction_rpy_deg 에 넣는 값이며, "
+    print("    (주의) 이 값은 params.yaml 의 imu_mount_correction_rpy_deg_real 에 넣는 값이며, "
           "라이다 보정(lidar_mount_correction_rpy_deg_real)과는 별개임.")
 
 
@@ -340,7 +340,7 @@ def cmd_sweep(a):
         sys.exit('[-] 유효한 회전 구간 없음')
 
     b = {ax: float(np.mean([f[ax]['bias'] for f in fits])) for ax in ('roll', 'pitch')}
-    print(f"\n[*] 평균 -> imu_mount_correction_rpy_deg: [{b['roll']:.3f}, {b['pitch']:.3f}]")
+    print(f"\n[*] 평균 -> imu_mount_correction_rpy_deg_real: [{b['roll']:.3f}, {b['pitch']:.3f}]")
     if len(fits) >= 2:
         dr = fits[0]['roll']['bias'] - fits[1]['roll']['bias']
         dp = fits[0]['pitch']['bias'] - fits[1]['pitch']['bias']

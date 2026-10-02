@@ -23,7 +23,7 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from utils.frame_recorder import load_frame_log, used_frame_mask  # noqa: E402
+from utils.frame_recorder import describe_capture_conditions, load_frame_log, used_frame_mask  # noqa: E402
 from utils.heatmap_generator import _load_occupancy_map  # noqa: E402
 from utils.frame_video import _wall_mask  # noqa: E402
 
@@ -40,6 +40,11 @@ def main():
     args = ap.parse_args()
 
     log = load_frame_log(args.npz)
+    cond_lines, cond_warns = describe_capture_conditions(log)
+    for ln in cond_lines:
+        print(f"[*] 측정 조건: {ln}")
+    for w in cond_warns:
+        print(f"[!] {w}")
     off, poses = log['offsets'], log['poses']
     used = used_frame_mask(log)
 

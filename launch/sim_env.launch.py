@@ -91,7 +91,7 @@ def _generate_world(pkg_share):
 
 
 def _launch_setup(context, *args, **kwargs):
-    pkg_my_dir = get_package_share_directory('dae_coverage_floor_flatness')
+    pkg_my_dir = get_package_share_directory('dae-coverage-floor-flatness')
     launch_file_dir = os.path.join(pkg_my_dir, 'launch')
     pkg_gazebo_ros = get_package_share_directory('gazebo_ros')
 
@@ -134,12 +134,15 @@ def _launch_setup(context, *args, **kwargs):
         }.items()
     )
 
+    use_imu_tilt = LaunchConfiguration('use_imu_tilt').perform(context).strip().lower() == 'true'
     imu_tilt_broadcaster_cmd = Node(
-        package='dae_coverage_floor_flatness',
+        package='dae-coverage-floor-flatness',
         executable='imu_tilt_broadcaster',
         name='imu_tilt_broadcaster',
         output='screen',
-        parameters=[{'use_sim_time': use_sim_time}]
+        parameters=[{'use_sim_time': use_sim_time,
+                     'use_imu_tilt': use_imu_tilt,
+                     'is_sim': True}]
     )
 
     return [gzserver_cmd, gzclient_cmd, robot_state_publisher_cmd, spawn_turtlebot_cmd,
@@ -147,7 +150,7 @@ def _launch_setup(context, *args, **kwargs):
 
 
 def generate_launch_description():
-    pkg_my_dir = get_package_share_directory('dae_coverage_floor_flatness')
+    pkg_my_dir = get_package_share_directory('dae-coverage-floor-flatness')
     turtlebot3_description_dir = get_package_share_directory('turtlebot3_description')
 
     # Gazebo가 3D 건물 모델(Apt 등)과 로봇 메시(Mesh)를 찾을 경로 설정
@@ -176,6 +179,11 @@ def generate_launch_description():
             'use_sim_time',
             default_value='true',
             description='Use simulation (Gazebo) clock if true'),
+
+        DeclareLaunchArgument(
+            'use_imu_tilt',
+            default_value='false',
+            description='true: IMU roll/pitch를 base_footprint->base_link TF에 반영, false: 회전 0 발행(기본)'),
 
         DeclareLaunchArgument('x_pose', default_value='0.0', description='로봇 스폰 x 좌표'),
         DeclareLaunchArgument('y_pose', default_value='0.0', description='로봇 스폰 y 좌표'),

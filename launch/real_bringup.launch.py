@@ -16,7 +16,7 @@
 #
 # Authors: Darby Lim
 #
-# Modified for dae_coverage_floor_flatness: turtlebot3_bringup의 robot.launch.py를
+# Modified for dae-coverage-floor-flatness: turtlebot3_bringup의 robot.launch.py를
 # 바탕으로, 이 패키지의 URDF와 launch만으로 실기체를 띄우도록 고침.
 
 import os
@@ -29,6 +29,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.actions import PushRosNamespace
+from launch_ros.parameter_descriptions import ParameterValue
 
 def generate_launch_description():
     TURTLEBOT3_MODEL = os.environ['TURTLEBOT3_MODEL']
@@ -76,14 +77,17 @@ def generate_launch_description():
             default=os.path.join(get_package_share_directory('hls_lfcd_lds_driver'), 'launch'))
 
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
+    use_imu_tilt = LaunchConfiguration('use_imu_tilt', default='false')
     
-    my_package_dir = get_package_share_directory('dae_coverage_floor_flatness')
+    my_package_dir = get_package_share_directory('dae-coverage-floor-flatness')
 
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value=use_sim_time, description='Use simulation (Gazebo) clock if true'),
         DeclareLaunchArgument('usb_port', default_value=usb_port, description='Connected USB port with OpenCR'),
         DeclareLaunchArgument('tb3_param_dir', default_value=tb3_param_dir, description='Full path to turtlebot3 parameter file to load'),
         DeclareLaunchArgument('namespace', default_value=namespace, description='Namespace for nodes'),
+        DeclareLaunchArgument('use_imu_tilt', default_value=use_imu_tilt,
+                              description='true: IMU roll/pitch를 base_footprint->base_link TF에 반영, false: 회전 0 발행(기본)'),
 
         PushRosNamespace(namespace),
 
@@ -114,11 +118,14 @@ def generate_launch_description():
             arguments=['-i', usb_port],
             output='screen'),
 
-        # IMU 실측 roll/pitch를 base_footprint->base_link TF에 주입 (imu_tilt_broadcaster.py 참고)
+        # base_footprint->base_link TF 발행(imu_tilt_broadcaster.py 참고). use_imu_tilt 에 따라
+        # IMU roll/pitch 를 싣거나 회전 0 을 발행하며, 어느 쪽이든 같은 노드가 동적 TF 로 발행함.
         Node(
-            package='dae_coverage_floor_flatness',
+            package='dae-coverage-floor-flatness',
             executable='imu_tilt_broadcaster',
             name='imu_tilt_broadcaster',
             output='screen',
-            parameters=[{'use_sim_time': use_sim_time}]),
+            parameters=[{'use_sim_time': use_sim_time,
+                         'use_imu_tilt': ParameterValue(use_imu_tilt, value_type=bool),
+                         'is_sim': False}]),
     ])

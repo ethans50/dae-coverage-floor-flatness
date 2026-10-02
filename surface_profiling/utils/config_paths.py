@@ -18,7 +18,7 @@ def _load_raw_config(config_path=None):
     if config_path is None:
         try:
             from ament_index_python.packages import get_package_share_directory
-            package_share_dir = get_package_share_directory('dae_coverage_floor_flatness')
+            package_share_dir = get_package_share_directory('dae-coverage-floor-flatness')
             config_path = os.path.join(package_share_dir, 'config', 'params.yaml')
         except Exception:
             base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))

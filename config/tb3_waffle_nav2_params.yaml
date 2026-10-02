@@ -285,7 +285,7 @@ map_server:
     mode: "scale"
     topic_name: "map"
     frame_id: "map"
-    yaml_filename: "/home/waffle/ros2_ws/src/dae_coverage_floor_flatness/data/map_from_dae.yaml"
+    yaml_filename: "/home/waffle/ros2_ws/src/dae-coverage-floor-flatness/data/map_from_dae.yaml"
     
 map_saver:
   ros__parameters:

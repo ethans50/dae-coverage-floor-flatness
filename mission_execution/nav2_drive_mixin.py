@@ -1,4 +1,4 @@
-# dae_coverage_floor_flatness/mission_execution/nav2_drive_mixin.py
+# dae-coverage-floor-flatness/mission_execution/nav2_drive_mixin.py
 """
 MissionExecutor의 nav2 액션 래퍼와 정체 복구 escalation을 담은 믹스인.
 

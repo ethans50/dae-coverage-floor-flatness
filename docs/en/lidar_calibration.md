@@ -16,6 +16,7 @@ lidar_mount_correction_rpy_deg_real: [0.0, 0.0, 0.0]
 
 - The correction is applied to point coordinates at collection time, so every later `.pcd`, `frames_*.npz`, heatmap and video reflects it.
 - Yaw is not derived by this procedure; leave it at 0.
+- The value is **valid only for the IMU TF mode it was measured in**. The procedure in this document runs with the default (IMU TF off, `stack.py up --imu-tf off`); to measure with the IMU TF on, collect the four headings again in that mode. The mode is stored in `frames_*.npz` and printed by the analysis scripts (section 1 of [imu_calibration.md](imu_calibration.md)).
 - With `colcon build --symlink-install`, `params.yaml` is linked into the install tree: after editing, restart the node without rebuilding.
 
 ## 2. Keyboard drive and point-cloud collection
@@ -28,27 +29,44 @@ lidar_mount_correction_rpy_deg_real: [0.0, 0.0, 0.0]
 
 ```bash
 # T1: Gazebo environment
-ros2 launch dae_coverage_floor_flatness sim_env.launch.py
+ros2 launch dae-coverage-floor-flatness sim_env.launch.py
 
 # T2: Nav2 + AMCL
-ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=true
+ros2 launch dae-coverage-floor-flatness tb3_waffle_nav2.launch.py use_sim_time:=true
 
 # T3: Measurement node
-ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true
+ros2 launch dae-coverage-floor-flatness surface_profiling.launch.py is_sim:=true
 
 # T4: Section 2-2 capture control (service calls)
 # T5: Section 2-3 velocity command
 ```
 
-**Real robot** (6 terminals total)
+**Real robot**
+
+From one laptop terminal, `scripts/stack.py` brings up T1, T2, T4 and T5 in order and checks each stage (prerequisites and options are in [stack.md](stack.md)). The remaining terminals are T3 (velocity commands on the Jetson) and T6 (capture control on the laptop).
+
+```bash
+# === Laptop, from the package root ===
+# Launcher: T1 Jetson bringup -> T2 Nav2/AMCL -> T4 Velodyne -> initial pose -> T5 measurement node
+# It must end with [+] 완료. --init takes map metres and yaw radians; without it, set the pose in RViz (section 4 of stack.md)
+python3 scripts/stack.py up --imu-tf off --init <X> <Y> <YAW>
+
+# T3: velocity commands on the Jetson (section 2-3)
+# T6: capture control on the Laptop (section 2-2)
+
+# Shut down
+python3 scripts/stack.py down
+```
+
+To run without the launcher, start the same launch files on each machine in this order.
 
 ```bash
 # === Jetson ===
-# T1: Robot driver + TF publisher
-ros2 launch dae_coverage_floor_flatness real_bringup.launch.py
+# T1: Robot driver + TF publisher (use_imu_tilt defaults to false)
+ros2 launch dae-coverage-floor-flatness real_bringup.launch.py
 
 # T2: Nav2 + AMCL (converge initial pose using RViz before starting)
-ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=false
+ros2 launch dae-coverage-floor-flatness tb3_waffle_nav2.launch.py use_sim_time:=false
 
 # T3: Velocity command (publish cmd_vel from Jetson)
 # → Run the velocity commands from section 2-3 here
@@ -58,7 +76,7 @@ ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=
 ros2 launch velodyne velodyne-all-nodes-VLP16-launch.py
 
 # T5: Measurement node (runs on laptop for time sync)
-ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=false
+ros2 launch dae-coverage-floor-flatness surface_profiling.launch.py is_sim:=false
 
 # T6: Capture control (call services from laptop)
 # → Run the start/stop calls from section 2-2 here
@@ -66,7 +84,8 @@ ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=fals
 
 **Before running**
 
-- Points are recorded only while a `map → velodyne_link` TF exists. Without a mission, set an initial pose (e.g. in RViz) and let AMCL converge before starting.
+- Points are recorded only while a `map → velodyne_link` TF exists. Without it the measurement node records zero points without any error, so `stack.py up` checks this TF in its last stage. If you started the nodes by hand, check with `ros2 run tf2_ros tf2_echo map velodyne_link`.
+- Without a mission, set the initial pose yourself and let AMCL converge before starting (`--init`, or in RViz with the Fixed Frame set to `map` and 2D Pose Estimate).
 - Points are stored in map coordinates, so the wall exclusion in the analysis (`--map`) and the wall overlay in the video line up with the floor plan only if the AMCL pose is accurate.
 
 ### 2-2. Capture control (Laptop T6 terminal)
@@ -188,7 +207,7 @@ Stand the LiDAR anywhere in the room and run this. It collects a few seconds of 
 
 **Step 2: automated four-heading calibration drive**
 
-Every mode but `--detect-only` calls the capture services for real (so does `--dry-run`), so the real-robot 6 terminals from section 2-1 (T1 Jetson bringup, T2 Nav2/AMCL, T4 Velodyne, T5 `surface_profiling.launch.py`) must already be up.
+Every mode but `--detect-only` calls the capture services for real (so does `--dry-run`), so the real-robot stack from section 2-1 (T1 Jetson bringup, T2 Nav2/AMCL, T4 Velodyne, T5 `surface_profiling.launch.py`) must already be up (`stack.py up` finished with `[+] 완료`).
 
 ```bash
 # First confirm the wall-angle detector gives a sane sign in this room (nudge the robot by hand)
@@ -242,6 +261,15 @@ python3 surface_profiling/analyze_z_bias.py \
   --map ~/dae_floor_maps/maps/grid/map_from_dae.yaml
 ```
 
+The start of the output shows the conditions the recording was made under.
+
+```
+[*] capture conditions: IMU TF mode=off bias=[1.200, -0.350] (imu_mount_correction_rpy_deg_real)
+[*] capture conditions: lidar_mount_rpy_deg (applied at capture)=[0.300, -0.400, 0.0]
+```
+
+If the IMU TF mode is not `off`, or the record has no metadata, a `[!]` warning is added. The suggested value is meaningful only for the mode of that recording, so on a warning, collect again in the matching mode.
+
 Example output:
 
 ```
@@ -273,7 +301,7 @@ Computation:
 1. Collect the four-heading data of section 2-4 with the correction off (`[0, 0, 0]`).
 2. Collect all four headings in one run (opening and closing capture windows) and run `analyze_z_bias.py`. With equal frame counts per heading, the mean pitch/roll is the mount tilt.
 3. Put the suggested value into the matching key (`_sim` or `_real`) in `params.yaml`.
-4. Restart `surface_profiling`, collect again the same way, and confirm pitch/roll are close to 0.
+4. Run `stack.py down` and bring the stack up again with `stack.py up --imu-tf off ...` (restarting only `surface_profiling` is enough, since the laptop reads the value), collect again the same way, and confirm pitch/roll are close to 0.
 5. If the data was collected with a correction already enabled, the suggested value is a residual that must be **added to the current value**.
 
 Sign convention: `pitch` follows the URDF joint rpy convention (positive rotates the sensor frame about y), and the suggested value can be used as printed without converting signs.
@@ -289,5 +317,5 @@ Sign convention: `pitch` follows the URDF joint rpy convention (positive rotates
 ## 5. Limitations
 
 - The plane fit assumes a flat floor, so calibrating on the very floor whose flatness is to be measured is circular. The four-heading average reduces this because the floor's slope does not rotate with the robot.
-- Only a **fixed** offset is corrected. Dynamic tilt, such as the chassis tilting while crossing a defect, is not corrected (without the IMU TF the TF is planar and carries no roll/pitch). IMU-based correction and its verification are in [imu_calibration.md](imu_calibration.md); if the IMU setting changes, redo this LiDAR correction.
+- Only a **fixed** offset is corrected. Dynamic tilt, such as the chassis tilting while crossing a defect, is not corrected (without the IMU TF the TF is planar and carries no roll/pitch). IMU-based correction and its verification are in [imu_calibration.md](imu_calibration.md); if the IMU TF mode or bias changes, redo this LiDAR correction.
 - The usable range (1.2-3.5 m) and the minimum points per frame (300) are defaults; adjust `--r-min`, `--r-max` and `--min-points` for other sensors or mount heights.

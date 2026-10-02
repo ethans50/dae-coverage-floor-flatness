@@ -319,9 +319,13 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
             os.makedirs(frame_dir, exist_ok=True)
             path = os.path.join(frame_dir, self.FRAME_LOG_FILENAME_TEMPLATE.format(
                 ts=self.collection_start_ts, suffix=suffix))
-            if self.frame_recorder.save(path):
+            meta = self._frame_log_meta()
+            if self.frame_recorder.save(path, extra_meta=meta):
                 self.frame_log_path = path
                 print(f"[+] Saved frame log ({len(self.frame_recorder)} frames): {path}")
+                print(f"    IMU TF: {meta['imu_tilt_status']}  lidar_mount_rpy_deg={list(meta['lidar_mount_rpy_deg'])}")
+                if meta['imu_tilt_status'] == 'unknown':
+                    print("[!] IMU TF 상태를 받지 못함(imu_tilt_broadcaster 미실행이거나 구버전) - 측정 조건 기록 불가")
             else:
                 print("[-] Frame log is empty - nothing saved.")
         except Exception as e:

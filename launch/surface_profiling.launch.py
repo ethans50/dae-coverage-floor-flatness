@@ -22,13 +22,13 @@ def generate_launch_description():
     있어야 함.
 
     Terminal Command:
-        ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true
-        ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=false
+        ros2 launch dae-coverage-floor-flatness surface_profiling.launch.py is_sim:=true
+        ros2 launch dae-coverage-floor-flatness surface_profiling.launch.py is_sim:=false
 
         # 알고리즘 비교 실험용 - 라벨을 주면 이번 수집물(pcd/heatmap)을
         # <workspace_root>/eval_runs/<라벨>/ 아래로 모아 저장함(안 주면 기본 동작 그대로).
         # mission_execution.launch.py에 준 라벨과 반드시 같은 값을 줘야 함:
-        ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true eval_run_label:=algo1_centroid
+        ros2 launch dae-coverage-floor-flatness surface_profiling.launch.py is_sim:=true eval_run_label:=algo1_centroid
 
         # run_ts까지 같이 주면 combined/raw pcd 파일명이 mission_execution.launch.py
         # 쪽 drive_debug/stall_report/robot_path csv 파일명과 통일됨(양쪽 launch
@@ -37,7 +37,7 @@ def generate_launch_description():
         # "이 노드가 실제로 시작한 시각"이 아니라 "이번 실험 전체를 가리키는
         # 공유 식별자"로 미리 정해서 넘기는 값임. 형식은
         # 'YYYY-MM-DD_HH-MM-SS'(예: `$(date +%Y-%m-%d_%H-%M-%S)`):
-        ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true eval_run_label:=algo1_centroid run_ts:=<timestamp>
+        ros2 launch dae-coverage-floor-flatness surface_profiling.launch.py is_sim:=true eval_run_label:=algo1_centroid run_ts:=<timestamp>
     """
 
     is_sim_arg = DeclareLaunchArgument(
@@ -61,7 +61,7 @@ def generate_launch_description():
     run_ts = LaunchConfiguration('run_ts')
 
     surface_profiler_node = Node(
-        package='dae_coverage_floor_flatness',
+        package='dae-coverage-floor-flatness',
         executable='surface_profiler',
         name='surface_profiler_node',
         output='screen',

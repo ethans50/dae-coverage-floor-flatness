@@ -20,12 +20,15 @@ SurfaceProfiler 쪽에 다음이 있다고 전제함: `profiling_cfg`, `is_sim`,
 `tf_lowpass_max_linear_vel`, `tf_lowpass_max_angular_vel_deg`, `last_tf_*`, `frame_recorder`(None이면 프레임 기록 안 함). `lidar_mount_correction`은 _setup_pointcloud_subscription에서 만듦.
 """
 
+import json
 import math
 
 import numpy as np
 import torch
 import tf_transformations
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from sensor_msgs.msg import PointCloud2
+from std_msgs.msg import String
 import sensor_msgs_py.point_cloud2 as pc2
 from tf2_ros import Buffer, TransformListener
 from geometry_msgs.msg import TransformStamped
@@ -53,6 +56,29 @@ class TfSyncMixin:
         # 레이스 컨디션(ExternalShutdownException)도 원천적으로 사라짐.
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
+        # imu_tilt_broadcaster 가 알리는 IMU TF 모드/바이어스. 라이다 보정값은 이 모드에서 측정한
+        # 값만 유효하므로 프레임 기록 메타에 함께 남김. 못 받으면 None(기록에는 'unknown').
+        self.imu_tilt_status = None
+        self.create_subscription(
+            String, '/imu_tilt/status', self._imu_tilt_status_cb,
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+
+    def _imu_tilt_status_cb(self, msg: String):
+        try:
+            self.imu_tilt_status = json.loads(msg.data)
+        except ValueError:
+            return
+        st = self.imu_tilt_status
+        self.get_logger().info(
+            f"IMU TF status: mode={st.get('mode')} bias={st.get('bias_rpy_deg')} ({st.get('bias_key')})")
+
+    def _frame_log_meta(self):
+        """프레임 기록(.npz)에 함께 저장할 측정 조건 메타를 만듦."""
+        return {
+            'imu_tilt_status': json.dumps(self.imu_tilt_status) if self.imu_tilt_status else 'unknown',
+            'lidar_mount_rpy_deg': np.asarray(self.lidar_mount_rpy_deg, dtype=np.float64),
+        }
+
     def _setup_pointcloud_subscription(self):
         self.voxel_size = self.profiling_cfg.get('voxel_size', 0.01)
         # [알고리즘 비교 실험용] 알고리즘 비교 실험에서 다운샘플 이전 raw 포인트가 필요함
@@ -71,6 +97,7 @@ class TfSyncMixin:
         # 없애기 위함이며, 값은 analyze_z_bias.py가 출력하는 제안값을 그대로 씀.
         rpy_key = 'lidar_mount_correction_rpy_deg_sim' if self.is_sim else 'lidar_mount_correction_rpy_deg_real'
         roll_deg, pitch_deg, yaw_deg = self.profiling_cfg.get(rpy_key, [0.0, 0.0, 0.0])
+        self.lidar_mount_rpy_deg = [roll_deg, pitch_deg, yaw_deg]
         self.lidar_mount_correction = tf_transformations.euler_matrix(
             math.radians(roll_deg), math.radians(pitch_deg), math.radians(yaw_deg))
         self.get_logger().info(f"LiDAR mount correction ({rpy_key}) rpy_deg=({roll_deg}, {pitch_deg}, {yaw_deg})")

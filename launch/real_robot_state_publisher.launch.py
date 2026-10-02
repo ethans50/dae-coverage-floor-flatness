@@ -36,7 +36,7 @@ def generate_launch_description():
     print('urdf_file_name : {}'.format(urdf_file_name))
 
     urdf = os.path.join(
-        get_package_share_directory('dae_coverage_floor_flatness'),
+        get_package_share_directory('dae-coverage-floor-flatness'),
         'urdf',
         urdf_file_name)
 

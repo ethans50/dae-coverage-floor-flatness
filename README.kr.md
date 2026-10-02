@@ -233,7 +233,7 @@ Costmap은 원형 `robot_radius`가 아니라 URDF 충돌 형상에서 뽑은 **
 ## 저장소 구조
 
 ```
-dae_coverage_floor_flatness/
+dae-coverage-floor-flatness/
 ├── config/
 │   ├── params.yaml                    # 알고리즘 + 주행 파라미터 전부
 │   └── tb3_waffle_nav2_params.yaml    # Nav2 스택 (Costmap, Controller, BT 경로)
@@ -307,16 +307,16 @@ cd ~/ros2_ws/src/dae-coverage-floor-flatness/mission_generation
 python3 run_generation_pipeline.py
 
 # 1. Gazebo world + 로봇
-ros2 launch dae_coverage_floor_flatness sim_env.launch.py
+ros2 launch dae-coverage-floor-flatness sim_env.launch.py
 
 # 2. Nav2 + AMCL
-ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=true
+ros2 launch dae-coverage-floor-flatness tb3_waffle_nav2.launch.py use_sim_time:=true
 
 # 3. 바닥 측정 노드 (surface_profiler)
-ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true
+ros2 launch dae-coverage-floor-flatness surface_profiling.launch.py is_sim:=true
 
 # 4. 미션 실행 (mission_executor) - 반드시 마지막
-ros2 launch dae_coverage_floor_flatness mission_execution.launch.py is_sim:=true
+ros2 launch dae-coverage-floor-flatness mission_execution.launch.py is_sim:=true
 ```
 
 **실기체** (기기 3대, 시작 전에 Jetson과 노트북의 시계를 chrony 등으로 동기화):
@@ -330,19 +330,25 @@ ros2 launch dae_coverage_floor_flatness mission_execution.launch.py is_sim:=true
 python3 run_generation_pipeline.py
 
 # 1. [Jetson] 로봇 bringup
-ros2 launch dae_coverage_floor_flatness real_bringup.launch.py
+ros2 launch dae-coverage-floor-flatness real_bringup.launch.py
 
 # 2. [Jetson] Nav2 + AMCL
-ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=false
+ros2 launch dae-coverage-floor-flatness tb3_waffle_nav2.launch.py use_sim_time:=false
 
 # 3. [노트북] VLP-16 드라이버 - `ros2 topic hz /velodyne_points`로 발행을 확인한 뒤 다음 단계로
 ros2 launch velodyne velodyne-all-nodes-VLP16-launch.py
 
 # 4. [노트북] 바닥 측정 노드 (surface_profiler)
-ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=false
+ros2 launch dae-coverage-floor-flatness surface_profiling.launch.py is_sim:=false
 
 # 5. [Jetson] 미션 실행 (mission_executor) - 반드시 마지막
-ros2 launch dae_coverage_floor_flatness mission_execution.launch.py is_sim:=false
+ros2 launch dae-coverage-floor-flatness mission_execution.launch.py is_sim:=false
+```
+
+1~4단계는 노트북에서 명령 하나로 올릴 수도 있음. 단계마다 확인이 통과해야 다음 단계를 시작함([스택 실행기 가이드](docs/kr/stack.md) 참고). 5단계는 그 뒤에 직접 실행함:
+
+```bash
+python3 scripts/stack.py up --imu-tf off --init <X> <Y> <YAW>
 ```
 
 순서가 정해진 이유:

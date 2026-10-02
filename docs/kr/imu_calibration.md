@@ -8,52 +8,65 @@
 
 ```yaml
 # config/params.yaml - mission_execution
-imu_mount_correction_rpy_deg: [0.0, 0.0]   # [roll, pitch] deg. /imu에서 이 값을 뺀 뒤 TF에 싣음
+imu_mount_correction_rpy_deg_sim:  [0.0, 0.0]   # Simulation IMU는 바이어스가 없으므로 0
+imu_mount_correction_rpy_deg_real: [0.0, 0.0]   # [roll, pitch] deg. /imu에서 이 값을 뺀 뒤 TF에 싣음
 ```
+
+모드는 launch 인자 `use_imu_tilt`로 정함. 기본값은 `false`임.
+
+| `use_imu_tilt` | 발행하는 `base_footprint → base_link` | 쓰는 곳 |
+|---|---|---|
+| `false`(기본) | 회전 0(평면). `/imu`와 무관하게 TF 체인이 끊기지 않음 | 3절 정지 측정, 4절 실행 A, 라이다 보정 |
+| `true` | `/imu`의 roll/pitch에서 바이어스를 뺀 값 | 4절 실행 B, IMU TF를 쓰는 측정 |
+
+- 실기체는 `real_bringup.launch.py use_imu_tilt:=true|false`, Simulation은 `sim_env.launch.py use_imu_tilt:=true|false`로 정함. 스택 실행기로는 `stack.py up --imu-tf on|off`임([stack.md](stack.md)).
+- 실행 중에도 `ros2 param set /imu_tilt_broadcaster use_imu_tilt true`(또는 `false`)로 전환됨. 두 모드 모두 같은 노드가 같은 방식으로 TF를 발행하므로 다른 노드를 재시작할 필요가 없음. 다만 측정 도중에는 전환하지 않음.
+- 현재 모드, 바이어스, 바이어스를 읽은 파일의 경로와 수정 시각이 시작 로그와 `/imu_tilt/status`(JSON, 마지막 값 유지)에 나옴. `surface_profiling`은 이 값을 `frames_*.npz`에 함께 저장하고, `analyze_z_bias.py`와 `check_map_alignment.py`가 읽어 출력함. 기록이 없는 이전 파일은 "메타 없음"으로 경고함.
 
 | 단계 | 구하는 것 | 방법 | 이유 |
 |---|---|---|---|
 | 3절 정지 | 고정 바이어스(장착 오차, 영점) | 같은 자리에서 90° 간격 4헤딩 정지 측정 후 평균 | 바이어스와 바닥 기울기는 한 방향 측정으로 분리 안 됨. 헤딩을 돌리면 바닥 성분이 평균에서 상쇄됨 |
 | 4절 주행 | 가감속·진동·지연 같은 동적 오차 | 주행 중 IMU와 라이다 평면 적합 tilt를 같은 시각축에서 비교 | 정지에서는 드러나지 않으므로 보정이 아니라 **검증** 대상임 |
 
-> **순서**: IMU(이 문서) → 라이다 보정. 라이다 보정값은 IMU TF가 켜진 상태에서 남는 오차이므로, IMU 설정이 바뀌면 라이다 보정을 다시 해야 함.
+> **순서**: IMU(이 문서) → 라이다 보정. 라이다 보정값은 측정 당시의 IMU TF 모드에서만 유효함. 모드나 바이어스가 바뀌면 라이다 보정을 다시 구함.
 >
-> **주의**: `imu_mount_correction_rpy_deg`는 Simulation/Real 구분 키가 없음. 실물 값을 넣은 채 Simulation을 실행하면 바이어스가 없는 시뮬레이션 IMU에서 그 값이 빠져 TF가 기울어짐. Simulation을 돌릴 때는 `[0.0, 0.0]`으로 되돌림.
+> **바이어스를 읽는 위치**: `imu_tilt_broadcaster`는 Jetson에서 실행되므로 실기체 값은 **Jetson의** `config/params.yaml`에서 읽음. 노트북의 파일만 고치면 반영되지 않으며, 어느 파일을 읽었는지는 시작 로그에서 확인함.
 
 스크립트: `surface_profiling/test/check_imu_dynamics.py` (아래 명령은 패키지 루트 기준, **Laptop**에서 실행). 서브커맨드는 `static`(정지 기록), `record`(주행 기록), `analyze`(비교).
 
 ## 2. 준비
 
+- 스택(Jetson bringup, Nav2, Velodyne, 측정 노드)은 노트북에서 `scripts/stack.py`로 올림. 사전 준비와 옵션은 [stack.md](stack.md)에 있고, 이 문서의 표는 그 명령을 기준으로 함. 같은 launch를 각 기기에서 직접 실행해도 결과는 같음.
 - Jetson과 Laptop이 같은 `ROS_DOMAIN_ID`로 서로의 토픽을 볼 수 있어야 함. Laptop에서 `ros2 topic hz /imu`가 약 20 Hz로 나오면 됨.
 - 4절 주행 검증은 Jetson과 Laptop의 **시계가 동기화**돼 있어야 정확함(IMU 시각은 Jetson, 프레임 시각은 Laptop 기준). 어긋나면 분석 결과의 지연 값에 섞여 나옴.
 - 라이다 쪽 준비(Velodyne 드라이버, AMCL 초기 위치)는 [lidar_calibration.md](lidar_calibration.md) 2-1절과 같음.
 
 ## 3. 정지 4헤딩 바이어스 측정
 
-**필요한 터미널은 2개**임. Nav2, 라이다, 측정 노드는 필요 없음.
+**필요한 터미널은 노트북 2개**임. 모드는 이 측정에 영향이 없음(`/imu` 원시값을 읽음). Nav2, 라이다, 측정 노드는 필요 없음.
 
 | 순서 | 머신 | 명령 / 동작 |
 |---|---|---|
-| 1 | **Jetson** J1 | `ros2 launch dae_coverage_floor_flatness real_bringup.launch.py` |
+| 1 | **Laptop** L1 | `python3 scripts/stack.py up --until bringup` (Jetson bringup을 SSH로 실행하고 게이트 확인) |
 | 2 | **Laptop** L1 | 로봇을 평평한 바닥에 두고 **완전히 정지**시킨 뒤: `python3 surface_profiling/test/check_imu_dynamics.py static --heading 0 --duration 30` |
-| 3 | **Jetson** J2 | 로봇을 제자리에서 90° 회전: `python3 surface_profiling/test/check_imu_dynamics.py rotate --deg 90` (`/odom` yaw를 보며 목표 각도 근처에서 감속하고 **스스로 정지**함. 앞뒤 공간 확인) |
+| 3 | **Laptop** L2 | 로봇을 제자리에서 90° 회전: `python3 surface_profiling/test/check_imu_dynamics.py rotate --deg 90` (`/odom` yaw를 보며 목표 각도 근처에서 감속하고 **스스로 정지**함. 앞뒤 공간 확인) |
 | 4 | | 정지 메시지가 나오면 **약 10초 대기** (직접 정지 명령은 필요 없음) |
 | 5 | **Laptop** L1 | `python3 surface_profiling/test/check_imu_dynamics.py static --heading 90 --duration 30` |
 | 6 | | 3~5를 반복해 `--heading 180`, `--heading 270` 측정 |
 | 7 | **Laptop** L1 | `python3 surface_profiling/test/check_imu_dynamics.py static --report` |
 
-- `rotate`는 odom 기준 회전량을 출력함(정지 후 관성분 포함, 목표 ±수 도 이내면 충분함). 시계 방향은 `--deg -90`. Jetson에 이 패키지 소스가 없으면 Laptop에서 실행해도 되며, 같은 `ROS_DOMAIN_ID`에서 `/cmd_vel`을 발행함.
+- `rotate`는 odom 기준 회전량을 출력함(정지 후 관성분 포함, 목표 ±수 도 이내면 충분함). 시계 방향은 `--deg -90`. 같은 `ROS_DOMAIN_ID`에서 `/cmd_vel`을 발행하므로 Jetson에서 실행해도 됨.
 - 모든 헤딩을 **같은 자리**(바퀴 중심 고정)에서 측정함. 스크립트는 헤딩 시작 후 10초(`--settle`)를 추가로 버려 회전 직후 필터 과도 응답을 제외함.
 - 날짜나 바닥이 바뀌면 `--tag 이름`으로 세션을 분리함.
 
 **결과 읽기** (4개가 모이면 `static`/`--report`가 출력. 아래 숫자는 형식을 보이기 위한 예시임)
 
 ```
-[*] 4헤딩 평균 -> imu_mount_correction_rpy_deg: [1.200, -0.350]
+[*] 4헤딩 평균 -> imu_mount_correction_rpy_deg_real: [1.200, -0.350]
     헤딩 간 표준편차 roll 0.052  pitch 0.031 deg
 ```
 
-- 출력된 `[roll, pitch]`를 `config/params.yaml`의 `imu_mount_correction_rpy_deg`에 넣음(`--symlink-install`이면 재빌드 불필요, 노드 재시작).
+- 출력된 `[roll, pitch]`를 **Jetson의** `config/params.yaml`의 `imu_mount_correction_rpy_deg_real`에 넣음(`--symlink-install`이면 재빌드 불필요. `stack.py down` 후 다시 `up`).
 - 헤딩 간 표준편차가 **0.5°를 넘으면** 경고가 나옴. 값이 몸체에 고정된 바이어스가 아니라 바닥 기울기, 필터 드리프트, 주변 자기장 등이 섞였다는 뜻이므로, 위치를 바꾸거나 시간을 두고 반복해 재현되는지 먼저 확인함. 재현되지 않으면 IMU TF를 쓰지 않는 쪽이 안전함.
 - roll/pitch가 한 번에 수 도(°) 단위로 달라지는 바이어스는 정상적인 마운트 오차 범위를 넘으므로 원인 확인이 우선임.
 
@@ -63,15 +76,15 @@ imu_mount_correction_rpy_deg: [0.0, 0.0]   # [roll, pitch] deg. /imu에서 이 �
 
 | 순서 | 머신 | 명령 / 동작 |
 |---|---|---|
-| 1 | **Jetson** J1 | `ros2 launch dae_coverage_floor_flatness real_bringup.launch.py` |
-| 2 | **Jetson** J2 | 로봇 주변 반경 0.5m 이상을 비우고: `python3 surface_profiling/test/check_imu_dynamics.py sweep` (반시계 1바퀴 → 정지 → 시계 1바퀴, 각속도 0.1 rad/s. Jetson에 소스가 없으면 Laptop에서 실행) |
+| 1 | **Laptop** L1 | `python3 scripts/stack.py up --until bringup` |
+| 2 | **Laptop** L2 | 로봇 주변 반경 0.5m 이상을 비우고: `python3 surface_profiling/test/check_imu_dynamics.py sweep` (반시계 1바퀴 → 정지 → 시계 1바퀴, 각속도 0.1 rad/s. Jetson에서 실행해도 됨) |
 
 ```
 [leg 0] 반시계  회전 343deg  n=1171
     roll  바이어스 -6.012  헤딩 의존 진폭 0.322  잔차 std 0.140  드리프트 +0.073 deg/min
     pitch 바이어스 +4.008  헤딩 의존 진폭 0.304  잔차 std 0.143  드리프트 +0.308 deg/min
 ...
-[*] 평균 -> imu_mount_correction_rpy_deg: [-6.006, 3.998]
+[*] 평균 -> imu_mount_correction_rpy_deg_real: [-6.006, 3.998]
     반시계-시계 바이어스 차 roll -0.011  pitch +0.021 deg
 ```
 
@@ -79,7 +92,7 @@ imu_mount_correction_rpy_deg: [0.0, 0.0]   # [roll, pitch] deg. /imu에서 이 �
 
 | 출력 | 의미 | 판단 |
 |---|---|---|
-| 바이어스 | 헤딩 의존 성분을 뺀 절편(구간 중간 시각 기준) | 두 구간의 평균이 `imu_mount_correction_rpy_deg` 후보임 |
+| 바이어스 | 헤딩 의존 성분을 뺀 절편(구간 중간 시각 기준) | 두 구간의 평균이 `imu_mount_correction_rpy_deg_real` 후보임 |
 | 헤딩 의존 진폭 | 헤딩에 따라 변하는 성분의 크기 | 바닥 기울기가 주성분임. 강체 기울기면 roll/pitch 진폭이 비슷함 |
 | 잔차 std | 적합 후 남는 흩어짐 | IMU 잡음 수준. 이보다 바이어스 불확실성은 훨씬 작음(점 수의 제곱근에 반비례) |
 | 드리프트 | 구간 안의 시간 추세 | 한 구간에서 0.3° 넘게 흐르면 경고. 정지 중에도 흐르는지 `static --duration 300`으로 확인 |
@@ -101,53 +114,45 @@ imu_mount_correction_rpy_deg: [0.0, 0.0]   # [roll, pitch] deg. /imu에서 이 �
 
 | 이름 | 머신 | 역할 |
 |---|---|---|
-| J1 | **Jetson** | 로봇 드라이버 + TF (`real_bringup.launch.py`) |
-| J2 | **Jetson** | Nav2 + AMCL |
-| J3 | **Jetson** | 속도 명령 발행 |
-| J4 | **Jetson** | IMU TF 전환 (A에서는 정지 TF 발행, B에서는 `imu_tilt_broadcaster`) |
-| L1 | **Laptop** | Velodyne 드라이버 |
-| L2 | **Laptop** | 측정 노드 (`surface_profiling.launch.py`) |
+| L1 | **Laptop** | 스택 실행기(`scripts/stack.py`): Jetson bringup, Nav2, Velodyne, 측정 노드를 순서대로 올리고 확인 |
 | L3 | **Laptop** | 캡처 서비스 호출 / 분석 |
 | L4 | **Laptop** | IMU 기록 (`record`) |
+| J3 | **Jetson** | 속도 명령 발행 |
+
+스택 실행기의 옵션과 게이트는 [stack.md](stack.md)에 있음. IMU TF 모드는 `--imu-tf` 인자로 정하며, 모드를 바꿀 때는 `down` 후 다시 `up`을 실행함(필터 상태가 이전 실행에 남지 않고, 모드가 측정 기록에 남음).
 
 ### 4-2. 실행 A: IMU TF off
 
-`base_footprint`는 URDF에 없고 이 노드가 발행하므로, 노드를 끄면 TF가 끊김. 같은 변환을 회전 0으로 대신 발행함.
+IMU TF off는 `imu_tilt_broadcaster`가 회전 0의 `base_footprint → base_link`를 계속 발행하는 상태임. 별도로 정지 TF를 띄울 필요가 없음.
 
 | 순서 | 머신 | 명령 / 동작 |
 |---|---|---|
-| 1 | **Jetson** J1 | `ros2 launch dae_coverage_floor_flatness real_bringup.launch.py` |
-| 2 | **Jetson** J4 | `pkill -f imu_tilt_broadcaster` |
-| 3 | **Jetson** J4 | `ros2 run tf2_ros static_transform_publisher --z 0.01 --frame-id base_footprint --child-frame-id base_link` (**실행 중 유지**) |
-| 4 | **Jetson** J3 | 확인: `ros2 run tf2_ros tf2_echo base_footprint base_link` → rotation이 0이면 정상, Ctrl-C |
-| 5 | **Jetson** J2 | `ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=false` |
-| 6 | **Laptop** L1 | `ros2 launch velodyne velodyne-all-nodes-VLP16-launch.py` |
-| 7 | **Laptop** L2 | `ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=false` |
-| 8 | | RViz에서 AMCL 초기 위치를 지정해 수렴시킴 |
-| 9 | **Laptop** L4 | `python3 surface_profiling/test/check_imu_dynamics.py record --label tf_off` (Ctrl-C까지 기록) |
-| 10 | **Laptop** L3 | 캡처 열기: `ros2 service call /surface_profiling/start_waypoint_capture std_srvs/srv/Trigger` (가감속 구간도 담아야 하므로 **이동 전에** 열고, 라이다 문서와 달리 1초 대기하지 않음) |
-| 11 | | 로봇 정지 상태로 **10초 대기** (정지 기준선) |
-| 12 | **Jetson** J3 | 전진: `ros2 topic pub --times 375 -r 20 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.16}}"` |
-| 13 | **Jetson** J3 | 정지: `ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0}}"` 후 **5초 대기** |
-| 14 | **Jetson** J3 | 후진: `ros2 topic pub --times 375 -r 20 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: -0.16}}"` → 정지(13과 같은 명령) → 5초 대기 |
-| 15 | | 12~14를 한 번 더 반복(총 2세트) |
-| 16 | | 마지막 정지 후 **10초 대기** |
-| 17 | **Laptop** L3 | `ros2 service call /surface_profiling/stop_waypoint_capture std_srvs/srv/Trigger` |
-| 18 | **Laptop** L3 | `ros2 service call /surface_profiling/stop_collection_success std_srvs/srv/Trigger` (프레임 기록 `frames_<timestamp>.npz` 저장) |
-| 19 | **Laptop** L4 | Ctrl-C → `imu_drive_tf_off_<timestamp>.npz` 저장 |
+| 1 | **Laptop** L1 | `python3 scripts/stack.py up --imu-tf off --init <X> <Y> <YAW>` (map 좌표 m, yaw rad. 끝에 `[+] 완료`가 나와야 함. `--init` 대신 RViz로 지정하려면 [stack.md](stack.md) 4절) |
+| 2 | **Laptop** L1 | 확인: `python3 scripts/stack.py check` → `[IMU TF] mode=off`, `map→odom`, `map→velodyne_link`가 OK인지 봄 |
+| 3 | **Laptop** L4 | `python3 surface_profiling/test/check_imu_dynamics.py record --label tf_off` (Ctrl-C까지 기록) |
+| 4 | **Laptop** L3 | 캡처 열기: `ros2 service call /surface_profiling/start_waypoint_capture std_srvs/srv/Trigger` (가감속 구간도 담아야 하므로 **이동 전에** 열고, 라이다 문서와 달리 1초 대기하지 않음) |
+| 5 | | 로봇 정지 상태로 **10초 대기** (정지 기준선) |
+| 6 | **Jetson** J3 | 전진: `ros2 topic pub --times 375 -r 20 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.16}}"` |
+| 7 | **Jetson** J3 | 정지: `ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0}}"` 후 **5초 대기** |
+| 8 | **Jetson** J3 | 후진: `ros2 topic pub --times 375 -r 20 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: -0.16}}"` → 정지(7과 같은 명령) → 5초 대기 |
+| 9 | | 6~8을 한 번 더 반복(총 2세트) |
+| 10 | | 마지막 정지 후 **10초 대기** |
+| 11 | **Laptop** L3 | `ros2 service call /surface_profiling/stop_waypoint_capture std_srvs/srv/Trigger` |
+| 12 | **Laptop** L3 | `ros2 service call /surface_profiling/stop_collection_success std_srvs/srv/Trigger` (프레임 기록 `frames_<timestamp>.npz` 저장. 저장 시 `IMU TF: ...` 줄이 출력됨) |
+| 13 | **Laptop** L4 | Ctrl-C → `imu_drive_tf_off_<timestamp>.npz` 저장 |
 
 속도 0.16 m/s는 `mission_execution.coverage_speed_limit_mps`와 같은 값으로, 측정 조건을 맞추기 위함임. 앞 공간을 확인한 뒤 실행함(개루프 명령).
 
 ### 4-3. 실행 B: IMU TF on
 
-3절에서 구한 바이어스를 `params.yaml`에 넣은 뒤 진행함.
+3절에서 구한 바이어스를 **Jetson의** `config/params.yaml`에 넣은 뒤 진행함(노드가 Jetson에서 그 값을 읽음).
 
 | 순서 | 머신 | 명령 / 동작 |
 |---|---|---|
-| 1 | **Jetson** J4 | 정지 TF 발행(A의 3단계)을 Ctrl-C로 끔 |
-| 2 | **Jetson** J4 | `ros2 run dae_coverage_floor_flatness imu_tilt_broadcaster` |
-| 3 | **Laptop** L2 | 측정 노드를 Ctrl-C 후 다시 실행(`surface_profiling.launch.py is_sim:=false`). 필터 상태가 이전 실행에 남지 않게 함 |
-| 4 | | A의 8~18단계를 같은 방식으로 반복하되, 9단계는 `record --label tf_on` |
+| 1 | **Laptop** L1 | `python3 scripts/stack.py down` (양쪽 종료. L4의 기록이 남아 있으면 먼저 Ctrl-C) |
+| 2 | **Laptop** L1 | `python3 scripts/stack.py up --imu-tf on --init <X> <Y> <YAW>` (로봇을 옮기지 않고 A와 같은 초기 위치를 줌) |
+| 3 | **Laptop** L1 | 확인: `python3 scripts/stack.py check` → `[IMU TF] mode=on bias=[...]`이 `params.yaml` 값과 같은지 봄 |
+| 4 | | A의 3~13단계를 같은 방식으로 반복하되, 3단계는 `record --label tf_on` |
 
 ### 4-4. 분석 실행
 
@@ -211,15 +216,15 @@ xdg-open ~/dae_floor_maps/analytics/imu_check/imu_drive_tf_off_<timestamp>_vs_li
 
 2D 라이다(`/scan`)는 수직 벽에 대해 차체 roll/pitch에 1차로 둔감해서(범위 변화가 각도의 제곱 수준) **tilt 기준으로는 쓸 수 없음**. 그 검증은 4절의 3D 라이다 평면 적합이 담당함. 대신 스캔 두 장 사이의 회전량(ICP)은 **yaw 변화의 독립 기준**이라, 같은 구간의 IMU 자이로 z 적분, IMU orientation yaw, 휠 오도메트리 yaw와 비교해 **스케일 오차(%)와 바이어스(deg/min)**를 구함. yaw 오차는 오도메트리를 거쳐 주행 경로가 휘는 원인이 됨.
 
-스크립트: `surface_profiling/test/check_imu_yaw_scan.py` (서브커맨드 `wiggle`, `record`, `analyze`). 터미널은 3절과 같이 Jetson J1(`real_bringup.launch.py`, LDS 드라이버 포함)만 필요하며, 아래 명령은 **Laptop** L1(또는 Jetson)에서 실행함.
+스크립트: `surface_profiling/test/check_imu_yaw_scan.py` (서브커맨드 `wiggle`, `record`, `analyze`). 스택은 3절과 같이 `stack.py up --until bringup`(Jetson bringup, LDS 드라이버 포함)만 필요하며, 아래 명령은 **Laptop**에서 실행함(스택용 L1과 별도 터미널 L2).
 
 | 목적 | 순서 | 명령 / 동작 |
 |---|---|---|
-| 정지 드리프트 | 1 | **Jetson** J1: `ros2 launch dae_coverage_floor_flatness real_bringup.launch.py` |
-| | 2 | **Laptop** L1: 로봇을 정지시키고 `python3 surface_profiling/test/check_imu_yaw_scan.py record --label static` → **3~5분** 뒤 Ctrl-C |
-| 짧은 회전 여러 번 | 2 | **Laptop** L1: 로봇 주변 반경 1m 이상을 비우고 `python3 surface_profiling/test/check_imu_yaw_scan.py wiggle --label room` (±25°, ±50°, ±90° 회전을 0.2/0.4/0.7 rad/s로 18회, 약 90초, 알짜 회전 0) |
-| 주행 중 | 2 | **Laptop** L1: `record --label drive` 시작 → **Jetson** J3에서 4-2절의 전진/정지/후진 명령 → 끝나면 Ctrl-C |
-| 분석 | 3 | **Laptop** L1: `python3 surface_profiling/test/check_imu_yaw_scan.py analyze scan_imu_<label>_<timestamp>.npz` |
+| 정지 드리프트 | 1 | **Laptop** L1: `python3 scripts/stack.py up --until bringup` |
+| | 2 | **Laptop** L2: 로봇을 정지시키고 `python3 surface_profiling/test/check_imu_yaw_scan.py record --label static` → **3~5분** 뒤 Ctrl-C |
+| 짧은 회전 여러 번 | 2 | **Laptop** L2: 로봇 주변 반경 1m 이상을 비우고 `python3 surface_profiling/test/check_imu_yaw_scan.py wiggle --label room` (±25°, ±50°, ±90° 회전을 0.2/0.4/0.7 rad/s로 18회, 약 90초, 알짜 회전 0) |
+| 주행 중 | 2 | **Laptop** L2: `record --label drive` 시작 → **Jetson** J3에서 4-2절 6~8단계의 전진/정지/후진 명령 → 끝나면 Ctrl-C |
+| 분석 | 3 | **Laptop** L2: `python3 surface_profiling/test/check_imu_yaw_scan.py analyze scan_imu_<label>_<timestamp>.npz` |
 
 - 기록 파일은 `~/dae_floor_maps/analytics/imu_check/`에 저장되고, 분석은 같은 곳에 `*_yaw.png`(스캔 yaw 변화 대 각 소스의 yaw 변화 산점도)를 만듦.
 - 회전 각도, 속도, 방향을 섞는 이유는 스케일 오차가 속도나 방향에 의존하는지 확인하기 위함임. 같은 `wiggle`을 방 위치나 방향을 바꿔 여러 번 돌려 결과가 재현되는지 보면 일반화 근거가 됨.

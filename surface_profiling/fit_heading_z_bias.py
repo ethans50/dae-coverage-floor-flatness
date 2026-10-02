@@ -16,7 +16,7 @@
 REP-103(X-forward/Y-left/Z-up) 작은각 근사로:
   a = dz/d(local_x) = -잔차_pitch(rad)   (양수 pitch = 앞으로 숙임)
   b = dz/d(local_y) = +잔차_roll(rad)    (양수 roll = 왼쪽이 들림)
-잔차_pitch/roll는 지금 mission_execution.imu_mount_correction_rpy_deg가
+잔차_pitch/roll는 지금 mission_execution.imu_mount_correction_rpy_deg_real가
 과다/과소 보정하고 있는 양이므로, 그대로 더해주면 이론상 상쇄됨
 (imu_tilt_broadcaster.py의 "raw - bias" 부호 규칙에서 유도).
 """
@@ -118,7 +118,7 @@ def main():
     print(f"\n[*] 적합 표본: 점 {n_fit_points}개, 셀 {n_cells}개")
     print(f"[*] a(dz/dlocal_x)={a:.6f}, b(dz/dlocal_y)={b:.6f}  (셀 고정효과 제거 후 R^2={r2:.3f})")
     print(f"[*] 추정 잔차 tilt: pitch={residual_pitch_deg:+.4f}deg, roll={residual_roll_deg:+.4f}deg")
-    print(f"[*] imu_mount_correction_rpy_deg에 더할 값(권장, 부호는 아래 보정 히트맵으로 먼저 검증): "
+    print(f"[*] imu_mount_correction_rpy_deg_real에 더할 값(권장, 부호는 아래 보정 히트맵으로 먼저 검증): "
           f"roll += {residual_roll_deg:+.4f}, pitch += {residual_pitch_deg:+.4f}")
 
     # 적합에 쓴 (a, b)로 전체 점(넓은 z 밴드, used 프레임)에 보정을 적용해

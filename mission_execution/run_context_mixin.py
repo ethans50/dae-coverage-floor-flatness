@@ -1,4 +1,4 @@
-# dae_coverage_floor_flatness/mission_execution/run_context_mixin.py
+# dae-coverage-floor-flatness/mission_execution/run_context_mixin.py
 """
 MissionExecutor의 "실행 맥락" 믹스인 - 입력을 읽어오고 결과를 내보내는 양 끝단.
 
@@ -91,7 +91,7 @@ class RunContextMixin:
     def _load_config(self):
         try:
             from ament_index_python.packages import get_package_share_directory
-            package_share_dir = get_package_share_directory('dae_coverage_floor_flatness')
+            package_share_dir = get_package_share_directory('dae-coverage-floor-flatness')
             config_path = os.path.join(package_share_dir, 'config', 'params.yaml')
         except Exception:
             # mission_execution 내에서 실행 시 프로젝트 루트의 config로 fallback 탐색

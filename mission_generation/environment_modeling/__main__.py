@@ -10,7 +10,7 @@ def main(args=None):
 
     try:
         # colcon build를 통해 install/ 폴더에 설치된 share 디렉토리 참조
-        package_share_dir = get_package_share_directory('dae_coverage_floor_flatness')
+        package_share_dir = get_package_share_directory('dae-coverage-floor-flatness')
         config_path = os.path.join(package_share_dir, 'config', 'params.yaml')
     except Exception as e:
         # 빌드 전 작업 공간에서 직접 실행(로컬 디버깅)할 때를 위한 Fallback 경로 계산

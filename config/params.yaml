@@ -101,11 +101,13 @@ mission_execution:
   spin_time_allowance_sec: 15.0
   tf_lookup_retry_sec: 1.0       # map->base_link TF 조회 실패 시 재시도할 최대 시간(초). 버퍼/리스너 생성 직후처럼 TF 이력이 아직 얕을 때의 일시적 ExtrapolationException을 흡수함.
 
-  # imu_tilt_broadcaster가 IMU orientation에서 뺀 뒤 base_footprint->base_link TF에
-  # 싣는 고정 바이어스(deg, [roll, pitch], lidar_mount_correction_rpy_deg와 같은
-  # 패턴). 정지 상태에서 4헤딩(0/90/180/270도) 측정 후 평균한 값 - 단일 헤딩
-  # 측정은 바닥 기울기가 섞여 신뢰 안 함(라이다 마운트 보정과 같은 원리).
-  imu_mount_correction_rpy_deg: [-6.127, 3.722]
+  # imu_tilt_broadcaster(use_imu_tilt:=true 일 때)가 IMU orientation에서 뺀 뒤
+  # base_footprint->base_link TF에 싣는 고정 바이어스(deg, [roll, pitch]). 정지 상태에서
+  # 4헤딩(0/90/180/270도) 측정 후 평균한 값 - 단일 헤딩 측정은 바닥 기울기가 섞여 신뢰 안 함
+  # (라이다 마운트 보정과 같은 원리). 시뮬레이션 IMU 는 바이어스가 없으므로 sim 은 0 으로 둠.
+  # 이 값은 IMU 를 장착/재보정할 때마다 다시 측정해야 하며, use_imu_tilt:=false 면 쓰이지 않음.
+  imu_mount_correction_rpy_deg_sim: [0.0, 0.0]
+  imu_mount_correction_rpy_deg_real: [-6.127, 3.722]
 
   initial_pose_max_yaw_error_deg: 30.0  # AMCL 초기화 검증 시 위치는 맞아도 heading이 이보다 벌어지면 실패 처리. 실제 로봇을 출력된 runway heading과 다르게 놓으면 map->odom TF가 회전된 채 굳어 주행 전체가 삐뚤어짐(위치 오차 체크만으로는 못 잡히던 결함).
 

@@ -20,6 +20,7 @@ PointCloud2 프레임 단위 기록 계층.
   offsets     (F+1,) int64    points[offsets[i]:offsets[i+1]]이 i번째 프레임의 점
   points      (P,3)  float32  map 좌표 점(z 밴드로만 잘림)
   meta_*      스칼라  only_capture_at_waypoints 등 기록 조건
+              (측정 노드가 imu_tilt_status(JSON 문자열), lidar_mount_rpy_deg(3,)도 남김)
 """
 
 import math
@@ -78,8 +79,10 @@ class FrameRecorder:
     def __len__(self):
         return len(self._stamps)
 
-    def save(self, path):
-        """누적된 기록을 .npz로 저장함. 프레임이 하나도 없으면 저장하지 않고 False를 반환함."""
+    def save(self, path, extra_meta=None):
+        """누적된 기록을 .npz로 저장함. 프레임이 하나도 없으면 저장하지 않고 False를 반환함.
+
+        extra_meta 의 항목은 'meta_<이름>' 키로 함께 저장됨(측정 조건 기록용)."""
         if not self._stamps:
             return False
         offsets = np.zeros(len(self._counts) + 1, dtype=np.int64)
@@ -96,6 +99,7 @@ class FrameRecorder:
             meta_only_capture_at_waypoints=np.bool_(self.only_capture_at_waypoints),
             meta_z_min=np.float64(self.z_min),
             meta_z_max=np.float64(self.z_max),
+            **{f'meta_{k}': v for k, v in (extra_meta or {}).items()},
         )
         return True
 
@@ -104,6 +108,28 @@ def load_frame_log(path):
     """save()로 만든 .npz를 dict로 읽어 반환함."""
     with np.load(path) as f:
         return {k: f[k] for k in f.files}
+
+
+def describe_capture_conditions(log):
+    """저장된 측정 조건 메타를 사람이 읽을 문장 목록으로 반환함: (줄 목록, 경고 목록).
+
+    라이다 보정 제안값은 IMU TF 가 꺼진 상태에서 구한 것만 의미가 있으므로, 모드가 off 가 아니거나
+    기록이 없으면 경고함."""
+    import json
+    lines, warns = [], []
+    raw = str(log['meta_imu_tilt_status']) if 'meta_imu_tilt_status' in log else None
+    if raw is None:
+        warns.append("측정 조건 메타 없음(이전 버전 기록) - IMU TF 가 켜져 있었는지 알 수 없음")
+    elif raw == 'unknown':
+        warns.append("IMU TF 상태를 받지 못한 채 기록됨 - imu_tilt_broadcaster 미실행이거나 구버전")
+    else:
+        st = json.loads(raw)
+        lines.append(f"IMU TF mode={st.get('mode')} bias={st.get('bias_rpy_deg')} ({st.get('bias_key')})")
+        if st.get('mode') != 'off':
+            warns.append("IMU TF 가 켜진 상태에서 기록됨 - 라이다 보정 제안값은 그 상태 전용이며 TF off 값과 다름")
+    if 'meta_lidar_mount_rpy_deg' in log:
+        lines.append(f"lidar_mount_rpy_deg(기록 당시 적용값)={[round(float(v), 3) for v in log['meta_lidar_mount_rpy_deg']]}")
+    return lines, warns
 
 
 def used_frame_mask(log):

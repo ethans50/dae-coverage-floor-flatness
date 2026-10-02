@@ -1,4 +1,4 @@
-# dae_coverage_floor_flatness/mission_execution/utils/controller_switch.py
+# dae-coverage-floor-flatness/mission_execution/utils/controller_switch.py
 """
 coverage/transit 구간별로 nav2 제어 방식을 바꾸는 유틸.
 
@@ -37,7 +37,7 @@ def transit_bt_path(kind):
     if _bt_dir is None:
         try:
             from ament_index_python.packages import get_package_share_directory
-            base = get_package_share_directory('dae_coverage_floor_flatness')
+            base = get_package_share_directory('dae-coverage-floor-flatness')
         except Exception:
             base = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         _bt_dir = os.path.join(base, 'behavior_trees')

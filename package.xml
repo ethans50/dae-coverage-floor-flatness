@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>dae_coverage_floor_flatness</name>
+  <name>dae-coverage-floor-flatness</name>
   <version>0.1.0</version>
   <description>DAE 기반 실내 환경 모델링과 커버리지 주행을 이용한 3D LiDAR 바닥 평탄도 자율 측정 시스템</description>
   <maintainer email="gon05158557@gmail.com">ChanggonSong</maintainer>

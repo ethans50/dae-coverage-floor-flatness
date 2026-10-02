@@ -55,7 +55,7 @@ def _resolve_default_map_path(pkg_share):
 
 
 def generate_launch_description():
-    pkg_share = get_package_share_directory('dae_coverage_floor_flatness')
+    pkg_share = get_package_share_directory('dae-coverage-floor-flatness')
 
     # map
     default_map_path = _resolve_default_map_path(pkg_share)

@@ -28,7 +28,7 @@ def main():
         config_path = os.path.abspath(args.config)
     else:
         try:
-            package_share_dir = get_package_share_directory('dae_coverage_floor_flatness')
+            package_share_dir = get_package_share_directory('dae-coverage-floor-flatness')
             config_path = os.path.join(package_share_dir, 'config', 'params.yaml')
         except Exception:
             base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))

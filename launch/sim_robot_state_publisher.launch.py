@@ -34,8 +34,8 @@ def generate_launch_description():
     frame_prefix = LaunchConfiguration('frame_prefix', default='')
     use_sim_time = LaunchConfiguration('use_sim_time', default='true')
 
-    # turtlebot3 패키지가 아닌 dae_coverage_floor_flatness/urdf 폴더 참조.
-    pkg_my_dir = get_package_share_directory('dae_coverage_floor_flatness')
+    # turtlebot3 패키지가 아닌 dae-coverage-floor-flatness/urdf 폴더 참조.
+    pkg_my_dir = get_package_share_directory('dae-coverage-floor-flatness')
     urdf_file_path = os.path.join(
         pkg_my_dir,
         'urdf',

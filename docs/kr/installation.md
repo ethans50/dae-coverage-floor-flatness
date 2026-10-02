@@ -107,15 +107,14 @@ export LD_LIBRARY_PATH=/usr/local/lib:/opt/ros/humble/lib:$LD_LIBRARY_PATH
 
 `GAZEBO_MODEL_PATH`는 `sim_env.launch.py`가 이 패키지의 `models/` 디렉토리를 기준으로 직접 설정하므로 따로 export할 필요 없음.
 
-필수는 아니지만 초기화 alias를 권장함. 이전 실행에서 남은 Gazebo/Nav2 프로세스가 이상 동작의 가장 흔한 원인임:
+필수는 아니지만 종료 명령을 PATH에 연결해 두기를 권장함. 이전 실행에서 남은 Gazebo/Nav2/드라이버 프로세스가 이상 동작의 가장 흔한 원인임. `scripts/stop_all.sh`는 이 패키지가 쓰는 프로세스(로봇 드라이버, 2D·3D 라이다, Nav2, Gazebo, RViz, 이 패키지의 노드)를 SIGINT, SIGTERM, SIGKILL 순서로 종료하고 ROS 그래프 캐시까지 정리함. 로봇(Jetson)과 노트북 각각에서 실행함:
 
 ```bash
-alias rrr='ros2 daemon stop; \
-killall -9 gzserver gzclient; \
-pkill -9 -f ros2; pkill -9 -f fastdds; \
-pkill -9 -f robot_state_publisher; pkill -9 -f ekf; \
-pkill -9 -f nav2; pkill -9 -f rviz; pkill -9 -f spawn_entity.py'
+mkdir -p ~/.local/bin
+ln -sf ~/ros2_ws/src/dae-coverage-floor-flatness/scripts/stop_all.sh ~/.local/bin/rrr
 ```
+
+`rrr -l`은 종료 없이 대상 목록만 출력하고, `rrr -f`는 단계 없이 바로 SIGKILL을 보냄.
 
 ---
 
@@ -394,10 +393,10 @@ python3 run_generation_pipeline.py
 **시뮬레이션** — 터미널 4개:
 
 ```bash
-ros2 launch dae_coverage_floor_flatness sim_env.launch.py
-ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=true
-ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true
-ros2 launch dae_coverage_floor_flatness mission_execution.launch.py is_sim:=true
+ros2 launch dae-coverage-floor-flatness sim_env.launch.py
+ros2 launch dae-coverage-floor-flatness tb3_waffle_nav2.launch.py use_sim_time:=true
+ros2 launch dae-coverage-floor-flatness surface_profiling.launch.py is_sim:=true
+ros2 launch dae-coverage-floor-flatness mission_execution.launch.py is_sim:=true
 ```
 
 **실제로 적용 중인 설정값 확인** — 실제 파이프라인과 완전히 동일한 방식으로 `params.yaml`을 읽어서 출력해줌:

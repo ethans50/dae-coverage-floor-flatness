@@ -1,4 +1,4 @@
-# dae_coverage_floor_flatness/mission_execution/localization_mixin.py
+# dae-coverage-floor-flatness/mission_execution/localization_mixin.py
 """
 MissionExecutor의 위치 추정(AMCL/TF) 관련 믹스인.
 

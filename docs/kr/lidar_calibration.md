@@ -16,6 +16,7 @@ lidar_mount_correction_rpy_deg_real: [0.0, 0.0, 0.0]
 
 - 보정은 수집 시점의 점 좌표에 바로 적용되며, 이후의 `.pcd`/`frames_*.npz`/히트맵/영상에 모두 반영됨.
 - yaw는 이 절차로 구하지 않으므로 0으로 둠.
+- 이 값은 **측정 당시의 IMU TF 모드에서만 유효함**. 이 문서의 절차는 기본값(IMU TF off, `stack.py up --imu-tf off`)에서 수행하며, IMU TF를 켠 상태로 측정하려면 같은 모드에서 4방향을 다시 수집해야 함. 모드는 `frames_*.npz`에 저장되고 분석 스크립트가 출력함([imu_calibration.md](imu_calibration.md) 1절).
 - `params.yaml`은 `colcon build --symlink-install`로 설치 경로에 링크되므로 값을 바꾼 뒤 재빌드 없이 노드만 다시 켜면 됨.
 
 ## 2. 키보드 주행 + 점군 수집
@@ -28,27 +29,44 @@ lidar_mount_correction_rpy_deg_real: [0.0, 0.0, 0.0]
 
 ```bash
 # T1: Gazebo 환경
-ros2 launch dae_coverage_floor_flatness sim_env.launch.py
+ros2 launch dae-coverage-floor-flatness sim_env.launch.py
 
 # T2: Nav2 + AMCL
-ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=true
+ros2 launch dae-coverage-floor-flatness tb3_waffle_nav2.launch.py use_sim_time:=true
 
 # T3: 측정 노드
-ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=true
+ros2 launch dae-coverage-floor-flatness surface_profiling.launch.py is_sim:=true
 
 # T4: 2-2절 캡처 제어 (서비스 호출)
 # T5: 2-3절 속도 명령 발행
 ```
 
-**Real-world** (총 6개 터미널)
+**Real-world**
+
+노트북 터미널 하나에서 `scripts/stack.py`가 T1, T2, T4, T5를 순서대로 올리고 단계마다 확인함(옵션과 사전 준비는 [stack.md](stack.md)). 남는 터미널은 T3(Jetson 속도 명령)과 T6(노트북 캡처 제어)임.
+
+```bash
+# === Laptop, 패키지 루트에서 ===
+# 실행기: T1 Jetson bringup -> T2 Nav2/AMCL -> T4 Velodyne -> 초기 위치 -> T5 측정 노드
+# 끝에 [+] 완료가 출력돼야 함. --init 은 map 좌표(m)와 yaw(rad)이며, 없으면 RViz로 지정(stack.md 4절)
+python3 scripts/stack.py up --imu-tf off --init <X> <Y> <YAW>
+
+# T3: Jetson 에서 속도 명령 발행(2-3절)
+# T6: Laptop 에서 캡처 제어(2-2절)
+
+# 종료
+python3 scripts/stack.py down
+```
+
+스택 실행기 없이 직접 실행하려면 각 기기에서 아래 순서로 실행함(같은 launch임).
 
 ```bash
 # === Jetson ===
-# T1: 로봇 드라이버 + TF 퍼블리셔
-ros2 launch dae_coverage_floor_flatness real_bringup.launch.py
+# T1: 로봇 드라이버 + TF 퍼블리셔 (use_imu_tilt 기본값은 false)
+ros2 launch dae-coverage-floor-flatness real_bringup.launch.py
 
 # T2: Nav2 + AMCL (Jetson의 IMU/wheel odometry로 초기 위치 수렴)
-ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=false
+ros2 launch dae-coverage-floor-flatness tb3_waffle_nav2.launch.py use_sim_time:=false
 
 # T3: 속도 명령 발행 (Jetson에서 cmd_vel 퍼블리시)
 # → 2-3절의 속도 명령을 여기서 실행
@@ -58,7 +76,7 @@ ros2 launch dae_coverage_floor_flatness tb3_waffle_nav2.launch.py use_sim_time:=
 ros2 launch velodyne velodyne-all-nodes-VLP16-launch.py
 
 # T5: 측정 노드 (laptop에서 실행되어 시간 동기화)
-ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=false
+ros2 launch dae-coverage-floor-flatness surface_profiling.launch.py is_sim:=false
 
 # T6: 캡처 제어 (laptop에서 서비스 호출)
 # → 2-2절의 start/stop 호출을 여기서 실행
@@ -66,7 +84,8 @@ ros2 launch dae_coverage_floor_flatness surface_profiling.launch.py is_sim:=fals
 
 **실행 전 점검**
 
-- `map → velodyne_link` TF가 있어야 점이 기록됨. 미션 없이 AMCL만 쓰므로 RViz에서 초기 위치를 지정해 수렴시킨 뒤 시작함.
+- `map → velodyne_link` TF가 있어야 점이 기록됨. 이 TF가 없으면 측정 노드가 에러 없이 점을 0개로 기록하므로, `stack.py up`은 마지막 단계에서 이 TF를 확인함. 직접 실행했다면 `ros2 run tf2_ros tf2_echo map velodyne_link`로 확인함.
+- 미션 없이 AMCL만 쓰므로 초기 위치를 직접 지정해 수렴시킨 뒤 시작함(`--init`, 또는 RViz에서 Fixed Frame을 `map`으로 두고 2D Pose Estimate).
 - 점군은 도면 기준 좌표(map)로 기록되므로, 이후 분석의 벽 제외(`--map`)와 영상의 벽 배경이 도면과 맞으려면 AMCL 위치가 정확해야 함.
 
 ### 2-2. 캡처 구간 제어 (Laptop T6 터미널)
@@ -187,7 +206,7 @@ python3 surface_profiling/scan_room_for_calibration.py --duration 6 --out room_p
 
 **2단계: 자동 4방향 캘리브레이션 주행**
 
-`--detect-only` 외의 모드는 캡처 서비스를 실제로 호출하므로(`--dry-run`도 마찬가지), 2-1절의 Real-world 6터미널(T1 Jetson bringup, T2 Nav2/AMCL, T4 Velodyne, T5 `surface_profiling.launch.py`)이 먼저 다 떠 있어야 함.
+`--detect-only` 외의 모드는 캡처 서비스를 실제로 호출하므로(`--dry-run`도 마찬가지), 2-1절의 스택(T1 Jetson bringup, T2 Nav2/AMCL, T4 Velodyne, T5 `surface_profiling.launch.py`)이 먼저 다 떠 있어야 함(`stack.py up`이 `[+] 완료`로 끝난 상태).
 
 ```bash
 # 먼저 벽 각도 검출기가 실제 방에서 타당한 부호로 나오는지 확인 (로봇을 직접 살짝 돌려보기)
@@ -277,6 +296,15 @@ roll (deg, +=좌측이 높음): mean 0.003  std(프레임 간) 0.009
 제안값: lidar_mount_correction_rpy_deg = [-0.003, 0.000, 0.0]
 ```
 
+분석 시작 부분에는 기록 당시의 측정 조건이 출력됨.
+
+```
+[*] 측정 조건: IMU TF mode=off bias=[1.200, -0.350] (imu_mount_correction_rpy_deg_real)
+[*] 측정 조건: lidar_mount_rpy_deg(기록 당시 적용값)=[0.300, -0.400, 0.0]
+```
+
+IMU TF 모드가 `off`가 아니거나 기록이 없으면 `[!]` 경고가 붙음. 제안값은 그 기록의 모드에서만 의미가 있으므로, 경고가 나오면 모드를 맞춰 다시 수집함.
+
 **각 항목 해석:**
 
 | 항목 | 의미 | 판단 기준 |
@@ -355,7 +383,7 @@ lidar_mount_correction_rpy_deg_real: [-0.31, 0.47, 0.0]  # [roll, pitch, yaw]
 
 **단계 3: 재측정 (보정 활성)**
 
-`surface_profiling` 노드를 다시 시작하고, 단계 1과 동일한 방식으로 4방향 데이터 수집.
+`stack.py down` 후 `stack.py up --imu-tf off ...`로 다시 올리고(측정 노드는 노트북에서 보정값을 읽으므로 측정 노드만 다시 켜도 됨), 단계 1과 동일한 방식으로 4방향 데이터 수집.
 
 분석:
 ```bash
@@ -401,5 +429,5 @@ lidar_mount_correction_rpy_deg_real: [-0.30, 0.45, 0.0]
 ## 5. 한계
 
 - 바닥이 평평하다는 가정으로 평면을 맞추므로, **평탄도를 재려는 바로 그 바닥**에서 보정하면 순환임. 4방향 측정 평균은, 바닥 경사가 로봇과 함께 돌지 않는다는 점을 이용해, 이 편향을 줄이는 방법임.
-- 이 보정은 **고정** 오프셋만 다룸. 결함 위를 지날 때 차체가 기우는 것 같은 동적 기울기는 보정되지 않음(IMU TF를 켜지 않으면 TF는 평면이라 roll/pitch가 반영되지 않음). IMU 기반 보정과 그 검증은 [imu_calibration.md](imu_calibration.md)를 참고하며, IMU 설정을 바꾸면 이 라이다 보정을 다시 해야 함.
+- 이 보정은 **고정** 오프셋만 다룸. 결함 위를 지날 때 차체가 기우는 것 같은 동적 기울기는 보정되지 않음(IMU TF를 켜지 않으면 TF는 평면이라 roll/pitch가 반영되지 않음). IMU 기반 보정과 그 검증은 [imu_calibration.md](imu_calibration.md)를 참고하며, IMU TF 모드나 바이어스를 바꾸면 이 라이다 보정을 다시 해야 함.
 - 사용 거리 범위(1.2~3.5m)와 프레임당 최소 점 수(300)는 기본값이며, 다른 센서/높이에서는 `--r-min`, `--r-max`, `--min-points`를 조정함.
