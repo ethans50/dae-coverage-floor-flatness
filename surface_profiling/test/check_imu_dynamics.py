@@ -10,6 +10,10 @@ IMU roll/pitch 보정값 측정(정지)과 주행 중 검증을 한 스크립트
            단일 헤딩은 바닥 기울기가 섞이므로 4헤딩 평균만 바이어스로 취급함.
   rotate   /odom yaw 를 보며 제자리에서 지정한 각도만큼 돌고 스스로 멈춤(헤딩 전환용, 개루프 명령의
            관성 초과 회전을 피함). 로봇 /cmd_vel 을 받을 수 있는 머신(Jetson 권장)에서 실행함.
+  sweep    제자리에서 천천히 연속 회전(기본: 반시계 1바퀴 + 시계 1바퀴)하며 /imu 를 기록하고, roll/pitch 를
+           헤딩의 함수  b + a1*cos(yaw) + a2*sin(yaw) (+ 시간 추세)로 최소제곱 적합해 바이어스 b 를 구함.
+           4헤딩 정지 측정보다 점이 훨씬 많고, 회전 직후 안정화 대기가 없으며, 방향별 차이로 회전 속도에
+           따른 편차도 확인함. 로봇 /cmd_vel 을 받을 수 있는 머신에서 실행함.
   record   주행 중 /imu 와 /odom 을 기록(Ctrl-C 로 종료하며 저장).
   analyze  record 결과와 profiler 의 frames_*.npz 를 같은 시각축으로 겹쳐서
            라이다 프레임별 평면 적합 tilt 와 IMU tilt 의 상관/지연/가감속 구간별 편차를 출력함.
@@ -18,6 +22,7 @@ IMU roll/pitch 보정값 측정(정지)과 주행 중 검증을 한 스크립트
   python3 check_imu_dynamics.py static --heading 0 --duration 30
   python3 check_imu_dynamics.py static --report
   python3 check_imu_dynamics.py rotate --deg 90
+  python3 check_imu_dynamics.py sweep
   python3 check_imu_dynamics.py record --label tf_off
   python3 check_imu_dynamics.py analyze --imu imu_drive_tf_off_<ts>.npz \
       --frames frames_<ts>.npz --map ~/dae_floor_maps/maps/grid/map_from_dae.yaml --imu-tf off
@@ -116,6 +121,14 @@ def cmd_static(a):
         json.dump(store, open(path, 'w'), indent=1)
         print(f"    n={len(d)} ({rate:.1f}Hz)  roll {d[:,1].mean():+.3f}±{d[:,1].std():.3f}  "
               f"pitch {d[:,2].mean():+.3f}±{d[:,2].std():.3f} deg")
+        # 기록 구간 안의 추세(deg/min). 정지 중에도 값이 흐르면 평균을 바이어스로 믿을 수 없음.
+        t = d[:, 0] - d[0, 0]
+        dr = [np.polyfit(t, d[:, k], 1)[0] * 60 for k in (1, 2)]
+        print(f"    기록 중 드리프트: roll {dr[0]:+.3f}  pitch {dr[1]:+.3f} deg/min  "
+              f"(구간 전체 {dr[0] * t[-1] / 60:+.2f} / {dr[1] * t[-1] / 60:+.2f} deg)")
+        if max(abs(dr[0]), abs(dr[1])) * t[-1] / 60 > 0.3:
+            print("    [!] 기록 중 0.3deg 넘게 흘렀음 - 회전 직후 필터 과도 응답이 덜 끝났거나 IMU 드리프트임. "
+                  "대기 시간을 늘려 재측정할 것.")
 
     print(f"\n[*] 누적 ({path})")
     for h in HEADINGS:
@@ -201,6 +214,145 @@ def cmd_rotate(a):
     if rclpy.ok():
         rclpy.shutdown()
 
+
+# ---------------------------------------------------------------- sweep ----
+
+def _fit_leg(rows, settle):
+    """한 방향 회전 구간 rows[(t, roll, pitch, yaw_unwrapped)] 적합: y = b + a1 cos(yaw) + a2 sin(yaw) + c*t."""
+    t = rows[:, 0] - rows[0, 0]
+    r = rows[t >= settle]
+    t = r[:, 0] - r[0, 0]
+    tm = (t - t.mean()) / 60.0  # 분 단위, 중심화(절편 = 구간 중간 시각의 값)
+    X = np.c_[np.ones(len(r)), np.cos(r[:, 3]), np.sin(r[:, 3]), tm]
+    out = {}
+    for name, col in (('roll', 1), ('pitch', 2)):
+        coef, *_ = np.linalg.lstsq(X, r[:, col], rcond=None)
+        out[name] = dict(bias=coef[0], amp=float(np.hypot(coef[1], coef[2])), drift=coef[3],
+                         resid=float((r[:, col] - X @ coef).std()))
+    out['turned_deg'] = float(np.degrees(abs(r[-1, 3] - r[0, 3])))
+    out['n'] = len(r)
+    out['dur_min'] = float(t[-1] / 60.0)
+    return out
+
+
+def cmd_sweep(a):
+    import math
+    import rclpy
+    from rclpy.node import Node
+    from geometry_msgs.msg import Twist
+    from nav_msgs.msg import Odometry
+    from sensor_msgs.msg import Imu
+    import tf_transformations
+
+    st = {'prev': None, 'unw': 0.0, 'leg': -1}
+    rows = []
+
+    class Sw(Node):
+        def __init__(self):
+            super().__init__('check_imu_sweep')
+            self.pub = self.create_publisher(Twist, a.cmd_topic, 10)
+            self.create_subscription(Odometry, a.odom_topic, self.on_odom, 20)
+            self.create_subscription(Imu, '/imu', self.on_imu, 50)
+
+        def on_odom(self, m):
+            q = m.pose.pose.orientation
+            yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+            if st['prev'] is not None:
+                st['unw'] += (yaw - st['prev'] + math.pi) % (2 * math.pi) - math.pi
+            st['prev'] = yaw
+
+        def on_imu(self, m):
+            q = m.orientation
+            if st['prev'] is None or st['leg'] < 0 or q.x == q.y == q.z == q.w == 0.0:
+                return
+            r, p, _ = tf_transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
+            rows.append((m.header.stamp.sec + m.header.stamp.nanosec * 1e-9,
+                         math.degrees(r), math.degrees(p), st['unw'], st['leg']))
+
+        def send(self, w):
+            t = Twist()
+            t.angular.z = w
+            self.pub.publish(t)
+
+    rclpy.init()
+    node = Sw()
+    t0 = time.time()
+    while rclpy.ok() and st['prev'] is None and time.time() - t0 < 5.0:
+        rclpy.spin_once(node, timeout_sec=0.1)
+    if st['prev'] is None:
+        node.destroy_node(); rclpy.shutdown()
+        sys.exit(f"[-] {a.odom_topic} 수신 없음 - 토픽/도메인 확인")
+
+    tol = math.radians(a.tol_deg)
+    print(f"[*] 연속 회전 {a.turns}바퀴(방향 교대, 각 {a.speed} rad/s ≈ {2 * math.pi / a.speed:.0f}s/바퀴). "
+          "로봇 주변 반경 0.5m 이상 비워둘 것. 중단은 Ctrl-C")
+    try:
+        for leg in range(a.turns):
+            sign = 1.0 if leg % 2 == 0 else -1.0
+            start, t_leg = st['unw'], time.time()
+            st['leg'] = leg
+            print(f"  [leg {leg}] {'반시계' if sign > 0 else '시계'} 회전 중...", flush=True)
+            while rclpy.ok() and time.time() - t_leg < 2 * math.pi / a.speed * 2 + 10:
+                rclpy.spin_once(node, timeout_sec=0.05)
+                remaining = 2 * math.pi - sign * (st['unw'] - start)
+                if remaining <= tol:
+                    break
+                ramp = max(0.2, min(1.0, (time.time() - t_leg) / 3.0))  # 시작 가속 완화
+                node.send(sign * min(a.speed * ramp, max(a.min_speed, 1.5 * remaining)))
+            st['leg'] = -1
+            for _ in range(10):
+                node.send(0.0)
+                rclpy.spin_once(node, timeout_sec=0.05)
+            t_w = time.time()
+            while time.time() - t_w < a.pause:  # 방향 전환 전 정지
+                rclpy.spin_once(node, timeout_sec=0.1)
+    except KeyboardInterrupt:
+        pass
+    for _ in range(10):
+        node.send(0.0)
+        rclpy.spin_once(node, timeout_sec=0.05)
+    node.destroy_node()
+    if rclpy.ok():
+        rclpy.shutdown()
+
+    rows = np.array(rows)
+    if rows.size == 0:
+        sys.exit('[-] 기록된 /imu 없음')
+    os.makedirs(OUT_DIR, exist_ok=True)
+    out = os.path.join(OUT_DIR, f"imu_sweep_{time.strftime('%Y-%m-%d_%H-%M-%S')}.npz")
+    np.savez(out, rows=rows)
+    print(f"[+] 원시 기록 저장: {out}")
+
+    fits = []
+    for leg in sorted(set(rows[:, 4].astype(int))):
+        lr = rows[rows[:, 4] == leg][:, :4]
+        if len(lr) < 200 or abs(lr[-1, 3] - lr[0, 3]) < math.radians(300):
+            print(f"  [leg {leg}] 회전이 360deg 미만이거나 샘플 부족 - 제외")
+            continue
+        f = _fit_leg(lr, a.settle)
+        fits.append(f)
+        print(f"\n[leg {leg}] {'반시계' if leg % 2 == 0 else '시계'}  회전 {f['turned_deg']:.0f}deg  n={f['n']}")
+        for ax in ('roll', 'pitch'):
+            g = f[ax]
+            print(f"    {ax:5s} 바이어스 {g['bias']:+.3f}  헤딩 의존 진폭 {g['amp']:.3f}  "
+                  f"잔차 std {g['resid']:.3f}  드리프트 {g['drift']:+.3f} deg/min")
+    if not fits:
+        sys.exit('[-] 유효한 회전 구간 없음')
+
+    b = {ax: float(np.mean([f[ax]['bias'] for f in fits])) for ax in ('roll', 'pitch')}
+    print(f"\n[*] 평균 -> imu_mount_correction_rpy_deg: [{b['roll']:.3f}, {b['pitch']:.3f}]")
+    if len(fits) >= 2:
+        dr = fits[0]['roll']['bias'] - fits[1]['roll']['bias']
+        dp = fits[0]['pitch']['bias'] - fits[1]['pitch']['bias']
+        print(f"    반시계-시계 바이어스 차 roll {dr:+.3f}  pitch {dp:+.3f} deg")
+        if max(abs(dr), abs(dp)) > 0.2:
+            print("    [!] 방향에 따라 바이어스가 0.2deg 넘게 달라짐 - 회전 속도/방향에 의존하는 오차(필터 지연 등)가 있음. "
+                  "--speed 를 낮춰 재측정하고, 그래도 남으면 이 IMU 는 회전 중 값을 믿기 어려움.")
+    amps = [(f['roll']['amp'], f['pitch']['amp']) for f in fits]
+    print("    헤딩 의존 진폭은 바닥 기울기(강체 기울기면 roll/pitch 진폭이 비슷함)와 헤딩 오차가 섞인 값임: "
+          + ", ".join(f"({r:.2f}, {p:.2f})" for r, p in amps) + " deg")
+    if any(abs(f[ax]['drift']) * f['dur_min'] > 0.3 for f in fits for ax in ('roll', 'pitch')):
+        print("    [!] 한 구간 안에서 0.3deg 넘게 흘렀음 - 정지 상태에서도 흐르는 IMU 일 수 있음(static --duration 300 으로 확인).")
 
 # ---------------------------------------------------------------- record ----
 
@@ -390,20 +542,31 @@ def main():
     s = sub.add_parser('static', help='정지 상태 헤딩별 roll/pitch 기록')
     s.add_argument('--heading', type=int, choices=HEADINGS)
     s.add_argument('--duration', type=float, default=30.0)
-    s.add_argument('--settle', type=float, default=5.0, help='시작 후 버릴 시간(s). 회전 직후 필터 안정화용')
+    s.add_argument('--settle', type=float, default=10.0, help='시작 후 버릴 시간(s). 회전 직후 필터 안정화용')
     s.add_argument('--tag', default='default', help='측정 세션 이름(다른 날/다른 바닥이면 바꿈)')
     s.add_argument('--report', action='store_true', help='기록 없이 누적 결과만 출력')
     s.set_defaults(fn=cmd_static)
 
     ro = sub.add_parser('rotate', help='odom yaw를 보며 제자리 회전 후 자동 정지(헤딩 전환용)')
     ro.add_argument('--deg', type=float, default=90.0, help='회전각(deg). 양수=반시계, 음수=시계')
-    ro.add_argument('--speed', type=float, default=0.5, help='최대 각속도(rad/s)')
-    ro.add_argument('--min-speed', type=float, default=0.15, help='감속 구간 최소 각속도(rad/s)')
+    ro.add_argument('--speed', type=float, default=0.3, help='최대 각속도(rad/s)')
+    ro.add_argument('--min-speed', type=float, default=0.12, help='감속 구간 최소 각속도(rad/s)')
     ro.add_argument('--tol-deg', type=float, default=1.5, help='이 각도 이내로 남으면 정지 명령')
     ro.add_argument('--timeout', type=float, default=20.0)
     ro.add_argument('--cmd-topic', default='/cmd_vel')
     ro.add_argument('--odom-topic', default='/odom')
     ro.set_defaults(fn=cmd_rotate)
+
+    sw = sub.add_parser('sweep', help='연속 회전하며 헤딩 함수로 적합해 바이어스 산출')
+    sw.add_argument('--turns', type=int, default=2, help='바퀴 수(방향 교대, 짝수 권장)')
+    sw.add_argument('--speed', type=float, default=0.1, help='각속도(rad/s). 낮을수록 필터 지연 영향이 작음')
+    sw.add_argument('--min-speed', type=float, default=0.05)
+    sw.add_argument('--tol-deg', type=float, default=2.0)
+    sw.add_argument('--settle', type=float, default=3.0, help='각 구간 시작 후 적합에서 버릴 시간(s)')
+    sw.add_argument('--pause', type=float, default=5.0, help='방향 전환 전 정지 시간(s)')
+    sw.add_argument('--cmd-topic', default='/cmd_vel')
+    sw.add_argument('--odom-topic', default='/odom')
+    sw.set_defaults(fn=cmd_sweep)
 
     r = sub.add_parser('record', help='주행 중 /imu,/odom 기록(Ctrl-C로 종료)')
     r.add_argument('--label', default='run', help='예: tf_off / tf_on')

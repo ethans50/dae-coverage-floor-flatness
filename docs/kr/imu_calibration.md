@@ -43,7 +43,7 @@ imu_mount_correction_rpy_deg: [0.0, 0.0]   # [roll, pitch] deg. /imu에서 이 �
 | 7 | **Laptop** L1 | `python3 surface_profiling/test/check_imu_dynamics.py static --report` |
 
 - `rotate`는 odom 기준 회전량을 출력함(정지 후 관성분 포함, 목표 ±수 도 이내면 충분함). 시계 방향은 `--deg -90`. Jetson에 이 패키지 소스가 없으면 Laptop에서 실행해도 되며, 같은 `ROS_DOMAIN_ID`에서 `/cmd_vel`을 발행함.
-- 모든 헤딩을 **같은 자리**(바퀴 중심 고정)에서 측정함. 스크립트는 헤딩 시작 후 5초(`--settle`)를 추가로 버려 회전 직후 필터 과도 응답을 제외함.
+- 모든 헤딩을 **같은 자리**(바퀴 중심 고정)에서 측정함. 스크립트는 헤딩 시작 후 10초(`--settle`)를 추가로 버려 회전 직후 필터 과도 응답을 제외함.
 - 날짜나 바닥이 바뀌면 `--tag 이름`으로 세션을 분리함.
 
 **결과 읽기** (4개가 모이면 `static`/`--report`가 출력. 아래 숫자는 형식을 보이기 위한 예시임)
@@ -56,6 +56,37 @@ imu_mount_correction_rpy_deg: [0.0, 0.0]   # [roll, pitch] deg. /imu에서 이 �
 - 출력된 `[roll, pitch]`를 `config/params.yaml`의 `imu_mount_correction_rpy_deg`에 넣음(`--symlink-install`이면 재빌드 불필요, 노드 재시작).
 - 헤딩 간 표준편차가 **0.5°를 넘으면** 경고가 나옴. 값이 몸체에 고정된 바이어스가 아니라 바닥 기울기, 필터 드리프트, 주변 자기장 등이 섞였다는 뜻이므로, 위치를 바꾸거나 시간을 두고 반복해 재현되는지 먼저 확인함. 재현되지 않으면 IMU TF를 쓰지 않는 쪽이 안전함.
 - roll/pitch가 한 번에 수 도(°) 단위로 달라지는 바이어스는 정상적인 마운트 오차 범위를 넘으므로 원인 확인이 우선임.
+
+### 3-1. 연속 회전(sweep) 방식 (권장)
+
+4헤딩에서 멈춰 재는 대신 **천천히 연속 회전하며 기록**하고 roll/pitch를 `b + a1·cos(yaw) + a2·sin(yaw) + c·t`로 적합해 바이어스 `b`를 구함. 점이 훨씬 많고, 회전 직후 안정화 대기가 없으며, 시계/반시계 한 바퀴씩 돌아 방향별 바이어스 차이(회전 속도에 따른 필터 지연 등)도 확인함. 총 소요시간은 약 2분임.
+
+| 순서 | 머신 | 명령 / 동작 |
+|---|---|---|
+| 1 | **Jetson** J1 | `ros2 launch dae_coverage_floor_flatness real_bringup.launch.py` |
+| 2 | **Jetson** J2 | 로봇 주변 반경 0.5m 이상을 비우고: `python3 surface_profiling/test/check_imu_dynamics.py sweep` (반시계 1바퀴 → 정지 → 시계 1바퀴, 각속도 0.1 rad/s. Jetson에 소스가 없으면 Laptop에서 실행) |
+
+```
+[leg 0] 반시계  회전 343deg  n=1171
+    roll  바이어스 -6.012  헤딩 의존 진폭 0.322  잔차 std 0.140  드리프트 +0.073 deg/min
+    pitch 바이어스 +4.008  헤딩 의존 진폭 0.304  잔차 std 0.143  드리프트 +0.308 deg/min
+...
+[*] 평균 -> imu_mount_correction_rpy_deg: [-6.006, 3.998]
+    반시계-시계 바이어스 차 roll -0.011  pitch +0.021 deg
+```
+
+(숫자는 형식을 보이기 위한 예시임)
+
+| 출력 | 의미 | 판단 |
+|---|---|---|
+| 바이어스 | 헤딩 의존 성분을 뺀 절편(구간 중간 시각 기준) | 두 구간의 평균이 `imu_mount_correction_rpy_deg` 후보임 |
+| 헤딩 의존 진폭 | 헤딩에 따라 변하는 성분의 크기 | 바닥 기울기가 주성분임. 강체 기울기면 roll/pitch 진폭이 비슷함 |
+| 잔차 std | 적합 후 남는 흩어짐 | IMU 잡음 수준. 이보다 바이어스 불확실성은 훨씬 작음(점 수의 제곱근에 반비례) |
+| 드리프트 | 구간 안의 시간 추세 | 한 구간에서 0.3° 넘게 흐르면 경고. 정지 중에도 흐르는지 `static --duration 300`으로 확인 |
+| 반시계-시계 차 | 회전 방향에 따른 바이어스 차 | 0.2° 넘으면 회전 속도/방향에 의존하는 오차가 있음. `--speed`를 낮춰 재측정 |
+
+- 원시 기록은 `imu_sweep_<timestamp>.npz`에 저장됨. 헤딩 각도는 `/odom` yaw를 쓰므로 바퀴 미끄러짐이 있어도 한 바퀴를 넘기만 하면 적합은 크게 흔들리지 않음.
+- 세션 간 값이 몇 도씩 달라지는 IMU라면 이 방식으로도 **세션마다 다시 측정**해야 함. 같은 세션에서 `sweep`을 두 번 돌려 바이어스가 0.2° 이내로 재현되는지 먼저 확인함.
 
 ## 4. 주행 중 IMU 검증
 
@@ -175,3 +206,42 @@ xdg-open ~/dae_floor_maps/analytics/imu_check/imu_drive_tf_off_<timestamp>_vs_li
 - 가속·제동 구간은 컨트롤러 가감속이 작으면 판정 임계(`--acc-thr`, 기본 0.03 m/s²)에 걸리는 프레임이 적을 수 있음.
 - 같은 주행에서 바닥 자체의 국소 경사가 달라지면 IMU와 라이다에 똑같이 나타나므로 상관에는 영향이 없으나, 정지 기준선과 주행 구간의 평균 비교에는 섞임.
 - 이 절차의 검증 대상은 roll/pitch뿐이며, 높이(z) 오프셋은 다루지 않음.
+
+## 7. 2D 라이다로 yaw 검증 (스캔 정합)
+
+2D 라이다(`/scan`)는 수직 벽에 대해 차체 roll/pitch에 1차로 둔감해서(범위 변화가 각도의 제곱 수준) **tilt 기준으로는 쓸 수 없음**. 그 검증은 4절의 3D 라이다 평면 적합이 담당함. 대신 스캔 두 장 사이의 회전량(ICP)은 **yaw 변화의 독립 기준**이라, 같은 구간의 IMU 자이로 z 적분, IMU orientation yaw, 휠 오도메트리 yaw와 비교해 **스케일 오차(%)와 바이어스(deg/min)**를 구함. yaw 오차는 오도메트리를 거쳐 주행 경로가 휘는 원인이 됨.
+
+스크립트: `surface_profiling/test/check_imu_yaw_scan.py` (서브커맨드 `wiggle`, `record`, `analyze`). 터미널은 3절과 같이 Jetson J1(`real_bringup.launch.py`, LDS 드라이버 포함)만 필요하며, 아래 명령은 **Laptop** L1(또는 Jetson)에서 실행함.
+
+| 목적 | 순서 | 명령 / 동작 |
+|---|---|---|
+| 정지 드리프트 | 1 | **Jetson** J1: `ros2 launch dae_coverage_floor_flatness real_bringup.launch.py` |
+| | 2 | **Laptop** L1: 로봇을 정지시키고 `python3 surface_profiling/test/check_imu_yaw_scan.py record --label static` → **3~5분** 뒤 Ctrl-C |
+| 짧은 회전 여러 번 | 2 | **Laptop** L1: 로봇 주변 반경 1m 이상을 비우고 `python3 surface_profiling/test/check_imu_yaw_scan.py wiggle --label room` (±25°, ±50°, ±90° 회전을 0.2/0.4/0.7 rad/s로 18회, 약 90초, 알짜 회전 0) |
+| 주행 중 | 2 | **Laptop** L1: `record --label drive` 시작 → **Jetson** J3에서 4-2절의 전진/정지/후진 명령 → 끝나면 Ctrl-C |
+| 분석 | 3 | **Laptop** L1: `python3 surface_profiling/test/check_imu_yaw_scan.py analyze scan_imu_<label>_<timestamp>.npz` |
+
+- 기록 파일은 `~/dae_floor_maps/analytics/imu_check/`에 저장되고, 분석은 같은 곳에 `*_yaw.png`(스캔 yaw 변화 대 각 소스의 yaw 변화 산점도)를 만듦.
+- 회전 각도, 속도, 방향을 섞는 이유는 스케일 오차가 속도나 방향에 의존하는지 확인하기 위함임. 같은 `wiggle`을 방 위치나 방향을 바꿔 여러 번 돌려 결과가 재현되는지 보면 일반화 근거가 됨.
+
+**특징이 없는 공간 처리**: 스캔 쌍마다 (점 수, 정합 잔차, 초기 yaw를 ±3° 바꿨을 때 결과 일관성, 오도메트리 초기값과의 차이)를 검사해 걸러냄. 분석 첫 줄에 채택 쌍 수와 제외 사유가 나오며, 채택 비율이 30% 미만이면 경고함. 30쌍 미만이면 결과를 내지 않음. 벽과 가구가 3m 이내 사방에 있는 곳에서 측정함(LDS-01 최대 거리 3.5m).
+
+```
+전체 회귀  Δsrc = s·Δscan + b·Δt   (Δscan: 스캔 정합 yaw 변화, 기준)
+  gyro z 적분            스케일 오차 +2.34%  바이어스 +12.215 deg/min  잔차 std 0.164 deg  (n=257)
+  IMU orientation yaw  스케일 오차 +2.52%  바이어스 +11.511 deg/min  잔차 std 0.138 deg  (n=263)
+  휠 오도메트리          스케일 오차 +1.54%  바이어스 -0.322 deg/min  잔차 std 0.130 deg  (n=263)
+```
+
+(숫자는 형식을 보이기 위한 예시임)
+
+| 출력 | 해석 |
+|---|---|
+| 스케일 오차 | 소스가 실제 회전량을 몇 % 틀리게 보는지. ±2% 안이면 무시 가능 |
+| 바이어스 | 정지 중에도 yaw가 흐르는 속도. 0.5 deg/min 넘으면 장시간 주행에서 경로가 휨 |
+| 속도 구간별 표 | 정지 구간은 드리프트, 회전 구간은 방향별 스케일. 속도나 방향마다 크게 다르면 단일 보정 상수로는 부족함 |
+
+**한계**
+- 2D 라이다 yaw는 기준이지 참값이 아님. 스캔 정합 자체의 오차(수 십분의 1도)가 있어, 느린 회전(1~8 deg/s) 구간의 스케일은 변화량이 작아 불확실함.
+- 로봇 주변에 움직이는 물체가 있으면 정합이 흔들림.
+- 이 검증은 yaw만 다룸. IMU TF에 들어가는 roll/pitch의 정확도와는 별개임.
