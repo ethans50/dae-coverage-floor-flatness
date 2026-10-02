@@ -105,7 +105,7 @@ mission_execution:
   # 싣는 고정 바이어스(deg, [roll, pitch], lidar_mount_correction_rpy_deg와 같은
   # 패턴). 정지 상태에서 4헤딩(0/90/180/270도) 측정 후 평균한 값 - 단일 헤딩
   # 측정은 바닥 기울기가 섞여 신뢰 안 함(라이다 마운트 보정과 같은 원리).
-  imu_mount_correction_rpy_deg: [-7.445, 2.372]
+  imu_mount_correction_rpy_deg: [-6.127, 3.722]
 
   initial_pose_max_yaw_error_deg: 30.0  # AMCL 초기화 검증 시 위치는 맞아도 heading이 이보다 벌어지면 실패 처리. 실제 로봇을 출력된 runway heading과 다르게 놓으면 map->odom TF가 회전된 채 굳어 주행 전체가 삐뚤어짐(위치 오차 체크만으로는 못 잡히던 결함).
 
