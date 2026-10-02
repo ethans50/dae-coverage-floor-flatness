@@ -36,12 +36,13 @@ imu_mount_correction_rpy_deg: [0.0, 0.0]   # [roll, pitch] deg. /imu에서 이 �
 |---|---|---|
 | 1 | **Jetson** J1 | `ros2 launch dae_coverage_floor_flatness real_bringup.launch.py` |
 | 2 | **Laptop** L1 | 로봇을 평평한 바닥에 두고 **완전히 정지**시킨 뒤: `python3 surface_profiling/test/check_imu_dynamics.py static --heading 0 --duration 30` |
-| 3 | **Jetson** J2 | 로봇을 제자리에서 약 90° 회전: `ros2 topic pub --times 63 -r 20 /cmd_vel geometry_msgs/msg/Twist "{angular: {z: 0.5}}"` (개루프라 ±10° 오차는 무방함) |
-| 4 | **Jetson** J2 | 정지: `ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{}"` 후 **약 10초 대기** |
+| 3 | **Jetson** J2 | 로봇을 제자리에서 90° 회전: `python3 surface_profiling/test/check_imu_dynamics.py rotate --deg 90` (`/odom` yaw를 보며 목표 각도 근처에서 감속하고 **스스로 정지**함. 앞뒤 공간 확인) |
+| 4 | | 정지 메시지가 나오면 **약 10초 대기** (직접 정지 명령은 필요 없음) |
 | 5 | **Laptop** L1 | `python3 surface_profiling/test/check_imu_dynamics.py static --heading 90 --duration 30` |
 | 6 | | 3~5를 반복해 `--heading 180`, `--heading 270` 측정 |
 | 7 | **Laptop** L1 | `python3 surface_profiling/test/check_imu_dynamics.py static --report` |
 
+- `rotate`는 odom 기준 회전량을 출력함(정지 후 관성분 포함, 목표 ±수 도 이내면 충분함). 시계 방향은 `--deg -90`. Jetson에 이 패키지 소스가 없으면 Laptop에서 실행해도 되며, 같은 `ROS_DOMAIN_ID`에서 `/cmd_vel`을 발행함.
 - 모든 헤딩을 **같은 자리**(바퀴 중심 고정)에서 측정함. 스크립트는 헤딩 시작 후 5초(`--settle`)를 추가로 버려 회전 직후 필터 과도 응답을 제외함.
 - 날짜나 바닥이 바뀌면 `--tag 이름`으로 세션을 분리함.
 

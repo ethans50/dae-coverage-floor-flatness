@@ -8,6 +8,8 @@ IMU roll/pitch 보정값 측정(정지)과 주행 중 검증을 한 스크립트
   static   정지 상태 N초 기록 -> 헤딩별 평균 저장. 4헤딩(90도 간격)이 모이면 평균을
            imu_mount_correction_rpy_deg 후보([roll, pitch], deg)로 출력함.
            단일 헤딩은 바닥 기울기가 섞이므로 4헤딩 평균만 바이어스로 취급함.
+  rotate   /odom yaw 를 보며 제자리에서 지정한 각도만큼 돌고 스스로 멈춤(헤딩 전환용, 개루프 명령의
+           관성 초과 회전을 피함). 로봇 /cmd_vel 을 받을 수 있는 머신(Jetson 권장)에서 실행함.
   record   주행 중 /imu 와 /odom 을 기록(Ctrl-C 로 종료하며 저장).
   analyze  record 결과와 profiler 의 frames_*.npz 를 같은 시각축으로 겹쳐서
            라이다 프레임별 평면 적합 tilt 와 IMU tilt 의 상관/지연/가감속 구간별 편차를 출력함.
@@ -15,6 +17,7 @@ IMU roll/pitch 보정값 측정(정지)과 주행 중 검증을 한 스크립트
 사용 예:
   python3 check_imu_dynamics.py static --heading 0 --duration 30
   python3 check_imu_dynamics.py static --report
+  python3 check_imu_dynamics.py rotate --deg 90
   python3 check_imu_dynamics.py record --label tf_off
   python3 check_imu_dynamics.py analyze --imu imu_drive_tf_off_<ts>.npz \
       --frames frames_<ts>.npz --map ~/dae_floor_maps/maps/grid/map_from_dae.yaml --imu-tf off
@@ -132,6 +135,71 @@ def cmd_static(a):
               "자기장 등이 섞였을 수 있음. 측정 위치를 바꾸거나 시간을 두고 반복해 재현되는지 먼저 확인.")
     print("    (주의) 이 값은 params.yaml 의 imu_mount_correction_rpy_deg 에 넣는 값이며, "
           "라이다 보정(lidar_mount_correction_rpy_deg_real)과는 별개임.")
+
+
+# ---------------------------------------------------------------- rotate ----
+
+def cmd_rotate(a):
+    """/odom yaw 변화량이 목표에 닿을 때까지 제자리 회전 후 정지. 남은 각도에 비례해 감속함."""
+    import math
+    import rclpy
+    from rclpy.node import Node
+    from geometry_msgs.msg import Twist
+    from nav_msgs.msg import Odometry
+
+    target = math.radians(abs(a.deg))
+    sign = 1.0 if a.deg >= 0 else -1.0
+    state = {'prev': None, 'turned': 0.0}
+
+    class Rot(Node):
+        def __init__(self):
+            super().__init__('check_imu_rotate')
+            self.pub = self.create_publisher(Twist, a.cmd_topic, 10)
+            self.create_subscription(Odometry, a.odom_topic, self.on_odom, 20)
+
+        def on_odom(self, m):
+            q = m.pose.pose.orientation
+            yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+            if state['prev'] is not None:
+                d = (yaw - state['prev'] + math.pi) % (2 * math.pi) - math.pi  # -pi~pi 로 감싼 증분
+                state['turned'] += sign * d
+            state['prev'] = yaw
+
+        def send(self, w):
+            t = Twist()
+            t.angular.z = w
+            self.pub.publish(t)
+
+    rclpy.init()
+    node = Rot()
+    t0 = time.time()
+    while rclpy.ok() and state['prev'] is None and time.time() - t0 < 5.0:
+        rclpy.spin_once(node, timeout_sec=0.1)
+    if state['prev'] is None:
+        node.destroy_node(); rclpy.shutdown()
+        sys.exit(f"[-] {a.odom_topic} 수신 없음 - 토픽/도메인 확인")
+
+    print(f"[*] 제자리 회전 {a.deg:+.0f}deg (최대 {a.speed} rad/s, 목표 근처에서 감속) - 앞 공간 확인")
+    t0 = time.time()
+    try:
+        while rclpy.ok() and time.time() - t0 < a.timeout:
+            rclpy.spin_once(node, timeout_sec=0.05)
+            remaining = target - state['turned']
+            if remaining <= math.radians(a.tol_deg):
+                break
+            node.send(sign * min(a.speed, max(a.min_speed, 1.5 * remaining)))
+    except KeyboardInterrupt:
+        pass
+    for _ in range(10):  # 정지 명령을 여러 번 보내 유실 방지
+        node.send(0.0)
+        rclpy.spin_once(node, timeout_sec=0.05)
+    time.sleep(0.5)
+    rclpy.spin_once(node, timeout_sec=0.1)
+    print(f"[+] 정지. odom 기준 회전량 {math.degrees(state['turned']):+.1f}deg "
+          f"(목표 {abs(a.deg):.0f}deg, 정지 후 관성분 포함)")
+    node.destroy_node()
+    if rclpy.ok():
+        rclpy.shutdown()
 
 
 # ---------------------------------------------------------------- record ----
@@ -326,6 +394,16 @@ def main():
     s.add_argument('--tag', default='default', help='측정 세션 이름(다른 날/다른 바닥이면 바꿈)')
     s.add_argument('--report', action='store_true', help='기록 없이 누적 결과만 출력')
     s.set_defaults(fn=cmd_static)
+
+    ro = sub.add_parser('rotate', help='odom yaw를 보며 제자리 회전 후 자동 정지(헤딩 전환용)')
+    ro.add_argument('--deg', type=float, default=90.0, help='회전각(deg). 양수=반시계, 음수=시계')
+    ro.add_argument('--speed', type=float, default=0.5, help='최대 각속도(rad/s)')
+    ro.add_argument('--min-speed', type=float, default=0.15, help='감속 구간 최소 각속도(rad/s)')
+    ro.add_argument('--tol-deg', type=float, default=1.5, help='이 각도 이내로 남으면 정지 명령')
+    ro.add_argument('--timeout', type=float, default=20.0)
+    ro.add_argument('--cmd-topic', default='/cmd_vel')
+    ro.add_argument('--odom-topic', default='/odom')
+    ro.set_defaults(fn=cmd_rotate)
 
     r = sub.add_parser('record', help='주행 중 /imu,/odom 기록(Ctrl-C로 종료)')
     r.add_argument('--label', default='run', help='예: tf_off / tf_on')

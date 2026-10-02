@@ -36,12 +36,13 @@ Script: `surface_profiling/test/check_imu_dynamics.py` (commands below are relat
 |---|---|---|
 | 1 | **Jetson** J1 | `ros2 launch dae_coverage_floor_flatness real_bringup.launch.py` |
 | 2 | **Laptop** L1 | With the robot on a flat floor and **completely still**: `python3 surface_profiling/test/check_imu_dynamics.py static --heading 0 --duration 30` |
-| 3 | **Jetson** J2 | Rotate the robot about 90° in place: `ros2 topic pub --times 63 -r 20 /cmd_vel geometry_msgs/msg/Twist "{angular: {z: 0.5}}"` (open loop; a ±10° error is fine) |
-| 4 | **Jetson** J2 | Stop: `ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{}"`, then **wait about 10 s** |
+| 3 | **Jetson** J2 | Rotate the robot 90° in place: `python3 surface_profiling/test/check_imu_dynamics.py rotate --deg 90` (it watches the `/odom` yaw, slows down near the target and **stops by itself**; check the space around the robot) |
+| 4 | | When the stop message appears, **wait about 10 s** (no manual stop command is needed) |
 | 5 | **Laptop** L1 | `python3 surface_profiling/test/check_imu_dynamics.py static --heading 90 --duration 30` |
 | 6 | | Repeat 3-5 for `--heading 180` and `--heading 270` |
 | 7 | **Laptop** L1 | `python3 surface_profiling/test/check_imu_dynamics.py static --report` |
 
+- `rotate` prints the odom-based rotation (including coasting after the stop; within a few degrees of the target is fine). Use `--deg -90` for clockwise. If the Jetson has no copy of this package's source, run it on the Laptop instead; it publishes `/cmd_vel` on the same `ROS_DOMAIN_ID`.
 - Measure all headings at the **same spot** (wheel center fixed). The script additionally discards the first 5 s of each heading (`--settle`) to skip the filter transient after rotation.
 - Use `--tag name` to separate sessions when the day or the floor changes.
 
