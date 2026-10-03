@@ -24,7 +24,7 @@ All pipeline settings live in a single file, [`config/params.yaml`](../../config
 | `z_min`, `z_max` | `surface_profiling` | Floor extraction window (m). Must span both sides of the design floor level. |
 | `grid_size` | `surface_profiling` | Analysis cell size for completeness and the heatmap. |
 | `save_raw_pcd`, `save_combined_csv`, `save_waypoint_pcd` | `surface_profiling` | Optional bulky artefacts, off by default. |
-| `save_frame_log`, `save_accumulation_video` | `surface_profiling` | Per-frame log (`pointclouds/frames/frames_*.npz`) and a top-down accumulation video of the floor points; on by default for debugging point-cloud coverage. `frame_log_z_min/max` and `video_*` tune them. |
+| `save_frame_log`, `save_accumulation_video` | `surface_profiling` | Per-frame log (`pointclouds/frames/frames_*.npz`, including per-point intensity) and a top-down accumulation video of the floor points; on by default for debugging point-cloud coverage. `frame_log_z_min/max` and `video_*` tune them. |
 
 Hardware-coupled constants (`lidar_mount_height`, `robot_width`, `boundary_repass_distance_m`) **must be re-measured** if the sensor is remounted or the robot is replaced.
 

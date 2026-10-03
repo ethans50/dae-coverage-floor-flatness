@@ -36,7 +36,7 @@ Script: `surface_profiling/test/check_imu_dynamics.py` (commands below are relat
 
 ## 2. Prerequisites
 
-- Bring the stack (Jetson bringup, Nav2, Velodyne, measurement node) up from the laptop with `scripts/stack.py`. Prerequisites and options are in [stack.md](stack.md), and the tables in this document use those commands. Running the same launch files on each machine by hand gives the same result.
+- Bring the stack (Jetson bringup, Nav2, Velodyne, measurement node) up from the laptop with `scripts/stack.py`. Prerequisites and options are in [stack.md](stack.md), and the tables in this document use those commands. Running the same launch files on each machine by hand gives the same result; in that case first clean up leftover processes on both machines with `scripts/stop_all.sh`.
 - Jetson and Laptop must see each other's topics (same `ROS_DOMAIN_ID`). `ros2 topic hz /imu` on the Laptop should show a steady rate (the `stack.py` gate requires at least 5 Hz).
 - The drive verification in section 4 needs **synchronized clocks** on the Jetson and Laptop (IMU stamps come from the Jetson, frame stamps from the Laptop). Otherwise the offset is mixed into the reported delay.
 - LiDAR-side preparation (Velodyne driver, AMCL initial pose) is the same as section 2-1 of [lidar_calibration.md](lidar_calibration.md).

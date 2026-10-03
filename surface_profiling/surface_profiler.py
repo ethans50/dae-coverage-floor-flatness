@@ -68,11 +68,14 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
       - /surface_profiling/stop_collection_abort : 미션 비정상 종료(타임아웃/실패/취소). 즉시 수집을 멈추되,
       그때까지 모은 포인트는 저장하고 2, 3단계도 동일하게 진행함. 이때 파일명에 '_aborted'라고 붙여 불완전한 데이터라는 뜻으로 저장함.
 
-    지점별(Waypoint) 캡처: coverage 웨이포인트에서 로봇이 정지하는 동안만 정밀 데이터를
-    모으기 위해, mission_executor.py가 호출하는 시작/종료 한 쌍의 std_srvs/Trigger
-    서비스로 캡처 구간(on/off)을 제어함. 정착 대기(settling)와 실제 캡처 시간(active
-    capture) 관리는 전부 mission_executor(주행 측)가 전담하며, 이 노드는 신호에만 반응함
-    (주행과 측정의 기능적 분리 원칙 유지).
+    캡처 구간(capture window) 제어: 측정에 쓸 구간만 모으기 위해, mission_executor.py가
+    호출하는 시작/종료 한 쌍의 std_srvs/Trigger 서비스로 캡처 구간(on/off)을 제어함.
+    창은 노드의 coverage가 시작될 때 열려 노드 안 코너를 지나도 유지되고, 경계 재통과가
+    끝난 뒤 닫힘. 즉 coverage sub-segment를 주행하는 동안 연속으로 캡처하며(정지 측정이
+    아님), 노드 사이 이동(transit)은 캡처하지 않음. 점 하나짜리 sub-segment만 이동이
+    없으므로 active_capture_seconds 동안 머무르며 캡처함. 창을 언제 열고 닫을지는 전부
+    mission_executor(주행 측)가 결정하며, 이 노드는 신호에만 반응함(주행과 측정의
+    기능적 분리 원칙 유지).
       - /surface_profiling/start_waypoint_capture : 이 시점부터 들어오는 포인트를
         지점 전용 버퍼(self.current_waypoint_points)에 적재하기 시작함.
       - /surface_profiling/stop_waypoint_capture : 적재를 멈추고, 모인 포인트를
@@ -80,9 +83,10 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
         (self.all_points)에도 병합함.
 
     params.yaml의 surface_profiling.only_capture_at_waypoints (기본값 True)로 동작을
-    전환할 수 있음: True면 정지-캡처 구간의 포인트만 최종 결과에 반영하고(이동 중
-    포인트는 모션 블러 우려로 버림), False면 평소처럼 전 구간을 연속 수집하되
-    지점별 캡처 파일은 부가적으로만 별도 저장함.
+    전환할 수 있음: True면 캡처 창이 열린 동안의 포인트만 최종 결과에 반영하고(transit
+    포인트는 측정 정밀도를 확인한 coverage 속도보다 빠르게 이동하며 측정 대상도 아니라서
+    버림), False면 transit까지 전 구간을 연속 수집하되 지점별 캡처 파일은 부가적으로만
+    별도 저장함.
 
     부가 기능: 필요 시 PCD를 CSV로 변환하는 보조 유틸(utils.pcd_io)을 제공.
     
@@ -137,8 +141,8 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
 
         # 지점별(Waypoint) 캡처 관련 상태.
         # capture_active=True인 동안에만 _pc_callback이 포인트를
-        # self.current_waypoint_points에 적재함(정지 상태에서 모은 깨끗한
-        # 데이터만 반영하기 위함). only_capture_at_waypoints 실제 값은
+        # self.current_waypoint_points에 적재함(coverage 주행 구간의 데이터만
+        # 반영하기 위함). only_capture_at_waypoints 실제 값은
         # _load_config()에서 profiling_cfg를 읽은 뒤 갱신됨.
         self.capture_active = False
         self.waypoint_capture_counter = 0
@@ -226,7 +230,7 @@ class SurfaceProfiler(TfSyncMixin, CaptureServicesMixin, Node):
         self.only_capture_at_waypoints = self.profiling_cfg.get('only_capture_at_waypoints', True)
         self.get_logger().info(
             f"only_capture_at_waypoints = {self.only_capture_at_waypoints} "
-            f"({'정지-캡처 구간만 반영' if self.only_capture_at_waypoints else '연속 수집 + 지점별 부가 저장'})"
+            f"({'캡처 창이 열린 구간만 반영' if self.only_capture_at_waypoints else '연속 수집 + 지점별 부가 저장'})"
         )
 
         self.enable_tf_lowpass_filter = self.profiling_cfg.get('enable_tf_lowpass_filter', True)

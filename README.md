@@ -192,6 +192,8 @@ Accumulated points are voxel-downsampled and saved as `combined_*.pcd` in the ma
 
 `combined_*.pcd` is the archival artefact: every metric downstream (z window, grid pitch, completeness denominator) can be recomputed from it with `reprocess_pcd.py` or `analyze_coverage_comparison.py` **without re-driving the robot**.
 
+The step-by-step generation of the heatmap and the layout of the per-frame log are described in [How the heatmap is generated](docs/en/heatmap_generation.md) ([한국어](docs/kr/heatmap_generation.md)).
+
 ---
 
 ## Design choices
@@ -372,6 +374,8 @@ python3 reprocess_pcd.py combined_<timestamp>.pcd --z-min -0.03 --z-max 0.03
 python3 analyze_coverage_comparison.py combined_<timestamp>.pcd \
     --robot-path robot_path_<epoch>.csv --stall-report stall_report_<epoch>.csv
 ```
+
+To view a frame log (`frames_*.npz`) as deviation from a local plane, with comparison metrics, see the [local-plane heatmap guide](docs/en/local_plane_heatmap.md) ([한국어](docs/kr/local_plane_heatmap.md)).
 
 ## Configuration
 

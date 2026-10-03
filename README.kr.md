@@ -192,6 +192,8 @@ Costmap은 원형 `robot_radius`가 아니라 URDF 충돌 형상에서 뽑은 **
 
 `combined_*.pcd`는 보관용 원본임. 후속 지표(z-window, 격자 크기, Completeness 분모)는 이 파일만 있으면 `reprocess_pcd.py`나 `analyze_coverage_comparison.py`로 **재주행 없이** 다시 계산할 수 있음.
 
+히트맵이 만들어지는 단계와 프레임 기록 구성은 [히트맵 생성 방식](docs/kr/heatmap_generation.md)([English](docs/en/heatmap_generation.md))에 정리함.
+
 ---
 
 ## 핵심 설계 선택
@@ -371,6 +373,8 @@ python3 reprocess_pcd.py combined_<타임스탬프>.pcd --z-min -0.03 --z-max 0.
 python3 analyze_coverage_comparison.py combined_<타임스탬프>.pcd \
     --robot-path robot_path_<epoch>.csv --stall-report stall_report_<epoch>.csv
 ```
+
+프레임 기록(`frames_*.npz`)을 국소 평면 대비 편차로 보고 비교 지표를 내려면 [국소 평면 히트맵 가이드](docs/kr/local_plane_heatmap.md)([English](docs/en/local_plane_heatmap.md))를 참고함.
 
 ## 설정
 

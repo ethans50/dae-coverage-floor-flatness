@@ -58,7 +58,7 @@ python3 scripts/stack.py up --imu-tf off --init <X> <Y> <YAW>
 python3 scripts/stack.py down
 ```
 
-To run without the launcher, start the same launch files on each machine in this order.
+To run without the launcher, first clean up leftover processes from a previous run **on both the Jetson and the laptop** (`scripts/stop_all.sh`; see the `rrr` link in the installation guide. A duplicate driver publishes the same topics and corrupts the data), then start the same launch files on each machine in this order. The IMU TF is off by default because `use_imu_tilt` defaults to `false`, so no separate TF publisher is needed.
 
 ```bash
 # === Jetson ===

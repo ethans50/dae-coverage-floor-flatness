@@ -19,6 +19,7 @@ PointCloud2 프레임 단위 기록 계층.
   n_raw       (F,)   int32    필터링 전 프레임의 유효 점 수(점을 저장하지 않은 프레임은 0)
   offsets     (F+1,) int64    points[offsets[i]:offsets[i+1]]이 i번째 프레임의 점
   points      (P,3)  float32  map 좌표 점(z 밴드로만 잘림)
+  intensity   (P,)   float32  points 와 같은 순서의 반사 강도(토픽에 intensity 필드가 없으면 NaN)
   meta_*      스칼라  only_capture_at_waypoints 등 기록 조건
               (측정 노드가 imu_tilt_status(JSON 문자열), lidar_mount_rpy_deg(3,)도 남김)
 """
@@ -47,6 +48,7 @@ class FrameRecorder:
         self._n_raw = []
         self._counts = []
         self._points = []
+        self._intensity = []
 
     @staticmethod
     def pose_from_transform(trans):
@@ -57,8 +59,10 @@ class FrameRecorder:
                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         return (t.x, t.y, t.z, yaw)
 
-    def add(self, stamp_sec, pose, points_map, capture_active, rejected):
-        """프레임 1개를 기록함. points_map이 None이면 pose/flag만 남김."""
+    def add(self, stamp_sec, pose, points_map, capture_active, rejected, intensity=None):
+        """프레임 1개를 기록함. points_map이 None이면 pose/flag만 남김.
+
+        intensity는 points_map과 같은 순서의 (N,) 배열이며 None이면 NaN으로 기록함."""
         flags = (self.FLAG_CAPTURE if capture_active else 0) | (self.FLAG_REJECTED if rejected else 0)
         self._stamps.append(stamp_sec)
         self._poses.append(pose)
@@ -70,11 +74,14 @@ class FrameRecorder:
             return
 
         z = points_map[:, 2]
-        kept = points_map[(z >= self.z_min) & (z <= self.z_max)].astype(np.float32, copy=False)
+        in_band = (z >= self.z_min) & (z <= self.z_max)
+        kept = points_map[in_band].astype(np.float32, copy=False)
         self._n_raw.append(points_map.shape[0])
         self._counts.append(kept.shape[0])
         if kept.shape[0]:
             self._points.append(kept)
+            self._intensity.append(np.full(kept.shape[0], np.nan, dtype=np.float32) if intensity is None
+                                   else np.asarray(intensity, dtype=np.float32)[in_band])
 
     def __len__(self):
         return len(self._stamps)
@@ -88,6 +95,7 @@ class FrameRecorder:
         offsets = np.zeros(len(self._counts) + 1, dtype=np.int64)
         np.cumsum(self._counts, out=offsets[1:])
         points = np.vstack(self._points) if self._points else np.zeros((0, 3), dtype=np.float32)
+        intensity = np.concatenate(self._intensity) if self._intensity else np.zeros(0, dtype=np.float32)
         np.savez(
             path,
             stamps=np.asarray(self._stamps, dtype=np.float64),
@@ -96,6 +104,7 @@ class FrameRecorder:
             n_raw=np.asarray(self._n_raw, dtype=np.int32),
             offsets=offsets,
             points=points,
+            intensity=intensity,
             meta_only_capture_at_waypoints=np.bool_(self.only_capture_at_waypoints),
             meta_z_min=np.float64(self.z_min),
             meta_z_max=np.float64(self.z_max),

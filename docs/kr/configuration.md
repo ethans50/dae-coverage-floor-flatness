@@ -24,7 +24,7 @@
 | `z_min`, `z_max` | `surface_profiling` | 바닥 추출 z-window(m). 설계 바닥 높이의 위아래를 모두 포함해야 함. |
 | `grid_size` | `surface_profiling` | Completeness와 Heatmap의 분석 셀 크기. |
 | `save_raw_pcd`, `save_combined_csv`, `save_waypoint_pcd` | `surface_profiling` | 용량이 큰 선택적 산출물. 기본 off. |
-| `save_frame_log`, `save_accumulation_video` | `surface_profiling` | 프레임 단위 기록(`pointclouds/frames/frames_*.npz`)과 바닥 점 top-down 누적 영상. 점군 커버리지 디버깅용으로 기본 on. `frame_log_z_min/max`, `video_*`로 조정함. |
+| `save_frame_log`, `save_accumulation_video` | `surface_profiling` | 프레임 단위 기록(`pointclouds/frames/frames_*.npz`, 점별 반사 강도 포함)과 바닥 점 top-down 누적 영상. 점군 커버리지 디버깅용으로 기본 on. `frame_log_z_min/max`, `video_*`로 조정함. |
 
 하드웨어에 묶인 상수(`lidar_mount_height`, `robot_width`, `boundary_repass_distance_m`)는 센서를 재장착하거나 로봇을 교체하면 **반드시 다시 실측**해야 함.
 

@@ -4,8 +4,8 @@ SurfaceProfiler의 ROS 서비스 서버 담당 믹스인 - mission_executor.py(J
 보내는 트리거를 받는 쪽.
 
 두 종류를 다룸 - (1) 미션 종료 트리거(정상 완료/중단)로 수집 루프를 멈추고
-후처리 단계로 넘어가게 함, (2) 지점별 캡처 시작/종료 트리거로 정지-캡처 구간의
-포인트만 따로 모아 waypoint 단위로 저장함.
+후처리 단계로 넘어가게 함, (2) 캡처 시작/종료 트리거로 캡처 창이 열린 동안의
+포인트만 따로 모아 창 단위로 저장함. 창은 정지 중이 아니라 coverage 주행 중에 열려 있음.
 
 캡처 시작 시 TF 저역통과 기준값(`last_tf_*`)을 리셋하는 것이 중요함 - 리셋하지
 않으면 직전 기준 프레임과의 거리가 통째로 "순간 속도"로 잡혀 캡처 초반 프레임이
@@ -90,14 +90,13 @@ class CaptureServicesMixin:
         self.capture_active = True
         self.waypoint_capture_counter += 1
 
-        # TF 저역통과 필터 기준값 리셋: mission_executor는 로봇이 목표 지점에
-        # 완전히 정지한 뒤에만 이 서비스를 호출하므로, 직전 기준 프레임이
-        # 아무리 멀리/오래 전(이전 waypoint, 심지어 이전 미션의 마지막
-        # 위치 - sim에서 재시작 없이 여러 미션을 연달아 돌리면 흔함)의
-        # 것이었어도 지금부터는 리셋하는 게 안전함. 안 그러면 그 사이의
-        # 실제 이동 거리가 통째로 "순간 속도"로 계산되어 임계치를 넘고,
-        # "통과한 프레임에서만 기준 갱신" 규칙 때문에 몇 초간 모든 프레임이
-        # 기각됨.
+        # TF 저역통과 필터 기준값 리셋: 창이 열리는 시점의 직전 기준 프레임은
+        # 이전 창(심지어 이전 미션의 마지막 위치 - sim에서 재시작 없이 여러
+        # 미션을 연달아 돌리면 위치가 텔레포트됨)의 것일 수 있음. 그대로 두면
+        # 그 사이의 이동 거리가 통째로 "순간 속도"로 계산되어 임계치를 넘고,
+        # "통과한 프레임에서만 기준 갱신" 규칙 때문에 기준이 계속 낡은 채로
+        # 남아 dt가 충분히 커질 때까지 모든 프레임이 기각됨. 리셋하면 다음
+        # 프레임이 비교 없이 통과해 새 기준이 됨.
         self.last_tf_translation = None
         self.last_tf_yaw = None
         self.last_tf_stamp = None
@@ -118,7 +117,7 @@ class CaptureServicesMixin:
 
         if point_count == 0:
             print(f"[!] Warning: Waypoint #{self.waypoint_capture_counter} captured 0 points "
-                  f"(TF/토픽 타이밍 문제이거나 정지 시간이 너무 짧을 수 있음).")
+                  f"(TF/토픽 타이밍 문제이거나 창이 열려 있던 시간이 너무 짧을 수 있음).")
             response.success = True
             response.message = f"Capture stopped (waypoint_id={self.waypoint_capture_counter}, points=0)"
             return response

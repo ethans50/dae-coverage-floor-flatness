@@ -250,14 +250,19 @@ class TfSyncMixin:
                         self.capture_active, not passes)
             return
 
-        # PointCloud2 → numpy array 변환
-        raw_points = pc2.read_points(msg, skip_nans=True, field_names=('x', 'y', 'z'))
-        points_np = np.array([(p[0], p[1], p[2]) for p in raw_points], dtype=np.float32)
-        if len(points_np) == 0:
+        # PointCloud2 → numpy array 변환. intensity 필드가 있으면 함께 읽어 프레임 기록에 남김
+        # (반사 강도 의존 오차 분석용. 필드가 없는 토픽이면 기록에 NaN으로 남음).
+        has_intensity = any(f.name == 'intensity' for f in msg.fields)
+        names = ('x', 'y', 'z', 'intensity') if has_intensity else ('x', 'y', 'z')
+        raw_points = pc2.read_points(msg, skip_nans=True, field_names=names)
+        cloud_np = np.array([tuple(p) for p in raw_points], dtype=np.float32)
+        if len(cloud_np) == 0:
             if rec is not None:
                 rec.add(stamp_sec, rec.pose_from_transform(trans), None,
                         self.capture_active, not passes)
             return
+        points_np = cloud_np[:, :3]
+        intensity_np = cloud_np[:, 3] if has_intensity else None
 
         # 행렬 연산을 위해 GPU(또는 CPU)로 전송
         points_t = torch.tensor(points_np, device=self.device)
@@ -275,13 +280,14 @@ class TfSyncMixin:
 
         if rec is not None:
             rec.add(stamp_sec, rec.pose_from_transform(trans), transformed_np,
-                    self.capture_active, not passes)
+                    self.capture_active, not passes, intensity=intensity_np)
         if not passes:
             return
 
         if self.only_capture_at_waypoints:
-            # 정지-캡처 구간(capture_active=True)의 포인트만 적재함.
-            # 이동(transit) 중 수집된 포인트는 모션 블러/타임스탬프 오차 우려로 버림.
+            # 캡처 창이 열린 구간(capture_active=True, coverage 주행과 경계 재통과)의
+            # 포인트만 적재함. 노드 사이 이동(transit) 중 포인트는 coverage 속도보다
+            # 빠르게 이동해 측정 정밀도를 확인한 범위 밖이고 측정 대상도 아니라서 버림.
             if self.capture_active:
                 self.current_waypoint_points.append(transformed_np)
         else:

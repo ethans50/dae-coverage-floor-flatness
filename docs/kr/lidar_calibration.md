@@ -58,7 +58,7 @@ python3 scripts/stack.py up --imu-tf off --init <X> <Y> <YAW>
 python3 scripts/stack.py down
 ```
 
-스택 실행기 없이 직접 실행하려면 각 기기에서 아래 순서로 실행함(같은 launch임).
+스택 실행기 없이 직접 실행하려면 먼저 **Jetson과 노트북 각각에서** 이전 실행의 잔여 프로세스를 정리한 뒤(`scripts/stop_all.sh`, 설치 문서의 `rrr` 연결 참고. 중복 드라이버가 남아 있으면 토픽이 겹쳐 데이터가 어긋남), 각 기기에서 아래 순서로 실행함(같은 launch임). IMU TF는 `use_imu_tilt` 기본값이 `false`라서 별도 TF 발행 없이 off 상태임.
 
 ```bash
 # === Jetson ===

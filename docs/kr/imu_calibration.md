@@ -36,7 +36,7 @@ imu_mount_correction_rpy_deg_real: [0.0, 0.0]   # [roll, pitch] deg. /imu에서 
 
 ## 2. 준비
 
-- 스택(Jetson bringup, Nav2, Velodyne, 측정 노드)은 노트북에서 `scripts/stack.py`로 올림. 사전 준비와 옵션은 [stack.md](stack.md)에 있고, 이 문서의 표는 그 명령을 기준으로 함. 같은 launch를 각 기기에서 직접 실행해도 결과는 같음.
+- 스택(Jetson bringup, Nav2, Velodyne, 측정 노드)은 노트북에서 `scripts/stack.py`로 올림. 사전 준비와 옵션은 [stack.md](stack.md)에 있고, 이 문서의 표는 그 명령을 기준으로 함. 같은 launch를 각 기기에서 직접 실행해도 결과는 같으며, 이때는 먼저 양쪽에서 `scripts/stop_all.sh`로 잔여 프로세스를 정리함.
 - Jetson과 Laptop이 같은 `ROS_DOMAIN_ID`로 서로의 토픽을 볼 수 있어야 함. Laptop에서 `ros2 topic hz /imu`로 값이 꾸준히 나오면 됨(`stack.py`의 게이트는 5 Hz 이상을 요구함).
 - 4절 주행 검증은 Jetson과 Laptop의 **시계가 동기화**돼 있어야 정확함(IMU 시각은 Jetson, 프레임 시각은 Laptop 기준). 어긋나면 분석 결과의 지연 값에 섞여 나옴.
 - 라이다 쪽 준비(Velodyne 드라이버, AMCL 초기 위치)는 [lidar_calibration.md](lidar_calibration.md) 2-1절과 같음.
