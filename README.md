@@ -138,7 +138,7 @@ Output: `final_topological_map.npz`. It holds node masks, centroids, and the con
 </p>
 
 1. **Width classification.** Each node's safe traversable width is measured and bucketed as `wide`, `narrow`, or `ultra_narrow` against the LiDAR blind radius. This decides the coverage strategy per node and flags rooms the robot cannot enter at all.
-2. **Visit order.** Christofides approximation (OR-Tools) over node centroids gives a global tour.
+2. **Visit order.** Christofides approximation (NetworkX) over shortest-path distances between node centroids gives a global tour.
 3. **Local reorder.** Rooms hanging off a hub corridor are re-ordered by door distance from the point where the robot actually finishes covering the hub.
 4. **In-node coverage.** Fields2Cover generates boustrophedon swaths. Wide nodes get an automatic best-angle search; narrow nodes use a fixed angle.
 5. **Swath ordering.** Swaths inside a node are ordered so the node is entered near its entry door and exited near the next room's door.
@@ -266,6 +266,8 @@ dae-coverage-floor-flatness/
 ├── models/ urdf/ worlds/ rviz/        # self-contained sim + real robot description
 └── requirements-*.txt                 # pinned dependencies per role
 ```
+
+A file-by-file description and the inputs and outputs of each stage are in [Code architecture](docs/en/architecture.md) ([한국어](docs/kr/architecture.md)).
 
 TurtleBot3 description, Nav2 parameters, Gazebo worlds and models are **vendored into this package** so a simulation or a real run needs only this repository plus the stock ROS 2 / Nav2 stack.
 
@@ -439,6 +441,7 @@ The Apache License does not apply to any other file in this repository.
 
 - [Nav2](https://docs.nav2.org/) — navigation stack, behavior trees, and the Regulated Pure Pursuit controller.
 - [Fields2Cover](https://github.com/Fields2Cover/Fields2Cover) — coverage path generation.
-- [OR-Tools](https://developers.google.com/optimization) — TSP solver.
+- [NetworkX](https://networkx.org/) — graph algorithms and the Christofides TSP approximation.
+- [OR-Tools](https://developers.google.com/optimization) — required by Fields2Cover.
 - [TurtleBot3](https://github.com/ROBOTIS-GIT/turtlebot3) — robot platform and description files.
 - [Open3D](https://www.open3d.org/) — point-cloud processing.

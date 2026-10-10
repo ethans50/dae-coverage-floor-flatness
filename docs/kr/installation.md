@@ -36,6 +36,7 @@
 |---|---|---|
 | `nav2_bringup` | `tb3_waffle_nav2.launch.py` | 주행, 시뮬레이션 |
 | `gazebo_ros`, `turtlebot3_description` | `sim_env.launch.py` | 시뮬레이션 |
+| `velodyne_gazebo_plugins` | `sim_env.launch.py` (시뮬 VLP-16, `ring` 발행) | 시뮬레이션 |
 | `turtlebot3_bringup`, `turtlebot3_node`, 그리고 기종에 맞는 LDS 드라이버 (`hls_lfcd_lds_driver` / `ld08_driver` / `coin_d4_driver`) | `real_bringup.launch.py` | 실기체만 |
 | `velodyne` (드라이버) | VLP-16 데이터 수집 | 실기체 측정 |
 
@@ -126,6 +127,9 @@ sudo apt install build-essential libgdal-dev libgeos-dev libeigen3-dev libboost-
      libtbb-dev libtinyxml2-dev nlohmann-json3-dev libpython3-dev gnuplot
 sudo apt install ros-humble-rmw-cyclonedds-cpp
 
+# 시뮬레이션 전용: Velodyne VLP-16 Gazebo 플러그인(`ring` 필드를 발행함)
+sudo apt install ros-humble-velodyne-gazebo-plugins
+
 python3 -m pip install --upgrade pip wheel
 pip install --user "setuptools<80,>=30.3.0"
 ```
@@ -166,7 +170,7 @@ python3 -c "import fields2cover as f2c; print(f2c.DECOMP_Boustrophedon)"
 
 ## 6. OR-Tools 공유 라이브러리
 
-TSP solver가 OR-Tools의 C++ 공유 라이브러리를 필요로 함. **아카이브는 아키텍처별로 다르니** 맞는 쪽을 쓸 것.
+Fields2Cover가 OR-Tools의 C++ 공유 라이브러리를 필요로 함. **아카이브는 아키텍처별로 다르니** 맞는 쪽을 쓸 것.
 
 **x86_64 (노트북 / 워크스테이션):**
 

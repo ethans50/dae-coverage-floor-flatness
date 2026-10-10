@@ -74,7 +74,7 @@ def compute_adjusted_exit(raw_points, enable_boundary_repass,
 
 def build_preview(path_segments, enable_boundary_repass,
                   boundary_repass_distance_m, map_resolution,
-                  lidar_mount_height, boundary_repass_ring_min_count=2):
+                  lidar_mount_height, boundary_repass_ring_min_count=2, verbose=True):
     """미션 실행 시 BoundaryRepassController가 만들 왕복 경로를 planning
     단계에서 근사해 시각화 전용으로 반환함. boundary_repass.py의 기하
     규칙(_offset_pose/_repass_distance_m)을 px 단위로 그대로 재현함.
@@ -91,6 +91,7 @@ def build_preview(path_segments, enable_boundary_repass,
     (path[-2]->path[-1])만으로 heading과 길이(clamp 기준)를 계산해서
     맞춤. 앵커 지점(p0/p_end) 자체는 그대로 path[0]/path[-1] 사용.
     """
+    log = print if verbose else (lambda *a, **k: None)
     preview_segments = []
     if not path_segments:
         return preview_segments
@@ -107,11 +108,11 @@ def build_preview(path_segments, enable_boundary_repass,
             return None, 0.0
         return vec / length, length
 
-    print("[*] Boundary repass preview:")
+    log("[*] Boundary repass preview:")
 
     first_seg = path_segments[0]
     if not enable_boundary_repass:
-        print("    [start prepass] SKIPPED - enable_boundary_repass is false.")
+        log("    [start prepass] SKIPPED - enable_boundary_repass is false.")
     elif first_seg['type'] == 'coverage' and len(first_seg['path']) >= 2:
         unit, seg_len_px = _unit_and_len(first_seg['path'][:2])  # 첫 다리만
         if unit is not None:
@@ -130,12 +131,12 @@ def build_preview(path_segments, enable_boundary_repass,
                 'label_at': 0,  # runway 지점(실제 로봇을 놔야 하는 곳)에 라벨을 붙임 -
                                 # p0는 이미 순번 "1"이 찍혀있어서 그쪽에 붙이면 안 보임.
             })
-            print(f"    [start prepass] mission start (path_segments[0]) - "
+            log(f"    [start prepass] mission start (path_segments[0]) - "
                   f"runway {d * map_resolution:.2f}m")
         else:
-            print("    [start prepass] SKIPPED - start coverage segment has zero length.")
+            log("    [start prepass] SKIPPED - start coverage segment has zero length.")
     else:
-        print("    [start prepass] SKIPPED - path_segments[0] is not type='coverage'.")
+        log("    [start prepass] SKIPPED - path_segments[0] is not type='coverage'.")
 
     n_coverage_exits = 0
     n_previewed = 0
@@ -148,7 +149,12 @@ def build_preview(path_segments, enable_boundary_repass,
               f"{', mission end' if is_mission_end else ''})"
 
         if len(seg['path']) < 2:
-            print(f"    [exit repass] {tag} SKIPPED - single-point coverage, no heading to retrace along.")
+            log(f"    [exit repass] {tag} SKIPPED - single-point coverage, no heading to retrace along.")
+            continue
+
+        # 다음 구간이 측정(record_pcd) transit이면 캡처가 끊기지 않으므로 실행기는 exit repass를 하지 않음
+        if idx + 1 < len(path_segments) and path_segments[idx + 1].get('record_pcd', False):
+            log(f"    [exit repass] {tag} SKIPPED - followed by a recorded transit (capture continues).")
             continue
 
         # _compute_repass_adjusted_exit와 완전히 동일한 계산을 재사용함
@@ -162,7 +168,7 @@ def build_preview(path_segments, enable_boundary_repass,
                                             boundary_repass_distance_m, map_resolution,
                                             lidar_mount_height, boundary_repass_ring_min_count)
         if retrace_raw is None or tuple(retrace_raw) == tuple(seg['path'][-1]):
-            print(f"    [exit repass] {tag} SKIPPED - no repass applied "
+            log(f"    [exit repass] {tag} SKIPPED - no repass applied "
                   f"(disabled, exit zone already observed by enough rings, "
                   f"or clamped distance too short).")
             continue
@@ -174,11 +180,12 @@ def build_preview(path_segments, enable_boundary_repass,
             'path': [tuple(p_end.astype(int)), tuple(retrace.astype(int))],
             'label': f'exit repass #{n_coverage_exits} ({d_m:.2f}m)',
             'label_at': 1,  # retrace 지점(되짚어 나가야 하는 곳)에 라벨
+            'exit_of': idx,
         })
         n_previewed += 1
-        print(f"    [exit repass] {tag} - retrace {d_m:.2f}m")
+        log(f"    [exit repass] {tag} - retrace {d_m:.2f}m")
 
-    print(f"[*] Boundary repass preview summary: {n_previewed}/{n_coverage_exits} "
+    log(f"[*] Boundary repass preview summary: {n_previewed}/{n_coverage_exits} "
           f"coverage exits got a repass preview (rest skipped as logged above).")
 
     return preview_segments

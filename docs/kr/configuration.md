@@ -16,10 +16,13 @@
 | `max_aspect_ratio` | `environment_modeling` | 이 값을 넘으면 노드를 분할함(Step 5). |
 | `robot_width` | `environment_modeling` | 로봇 **반경**(m). 주행 가능 영역과 planning 경로의 벽 여유 계산에 쓰임. |
 | `path_safety_margin` | `mission_planner` | `robot_width`에 더해 planning 경로가 벽에서 추가로 유지할 여유. |
-| `lidar_range`, `overlap`, `lidar_vertical_fov_deg`, `lidar_mount_height` | `mission_planner` | 센서 기하. Swath 폭과, 노드 버킷을 가르는 Blind Radius를 결정함. |
+| `lidar_range`, `overlap`, `lidar_vertical_fov_deg`, `lidar_mount_height` | `mission_planner` | 센서 기하. Swath 폭(`lidar_range` × (1 − `overlap`))과, 노드 버킷을 가르는 Blind Radius를 결정함. `lidar_range`는 분석에 쓰는 가장 먼 범위인 링 4 상한(마운트 높이 0.338 m에서 2.44 m)으로 둠. |
 | `turn_weight`, `wall_weight` | `mission_planner` | A\* Transit 경로 페널티. |
+| `enable_transit_capture` | `mission_planner` | `true`면 경로 생성 시 planning된 경로만으로 링 히트가 모자랄 바닥 셀(Blind Radius의 2배보다 짧은 직선 구간은 중앙이 빔)을 예측하고, 노드 뒤 transit을 측정하면 그 셀이 메워질 때만 그 transit의 캡처를 켬. 못 메우는 셀은 개수와 위치만 보고하고 경로는 바꾸지 않음. |
+| `enable_corner_reach` | `mission_planner` | `true`면 측정 구간의 코너 바로 앞에 보조 웨이포인트를 둠. 실행기가 직선 sub-segment를 목표 목록으로 Nav2에 보내는데, Nav2는 로봇이 0.7 m(transit BT는 0.3 m) 안에 들어온 중간 목표를 지우므로 보조점이 없으면 코너를 잘라 그 주변 셀의 측정이 부족해짐. |
 | `coverage_speed_limit_mps` / `transit_speed_limit_mps` | `mission_execution` | 구간 종류별 주행 속도. |
 | `direction_change_threshold_deg` | `mission_execution` | 새 직선 sub-segment를 시작할 heading 변화량. |
+| `subsegment_merge_max_turn_deg` / `subsegment_merge_min_leg_m` | `mission_execution` | 고립된 코너점은 보통 다음 점과 함께 Nav2에 보냄. 코너에서 경로가 이 각도보다 크게 되돌아 나가고 앞뒤 구간이 모두 이 길이(m) 이상이면 코너를 단독 목표로 먼저 도달함. |
 | `boundary_repass_distance_m` | `mission_execution` | Coverage 경계에서 재통과할 거리. Blind Radius의 2배를 넘겨야 함. |
 | `z_min`, `z_max` | `surface_profiling` | 바닥 추출 z-window(m). 설계 바닥 높이의 위아래를 모두 포함해야 함. |
 | `grid_size` | `surface_profiling` | Completeness와 Heatmap의 분석 셀 크기. |
@@ -38,9 +41,9 @@
 | `robot_width`, `path_safety_margin` | **planning 경로**의 벽 여유만 정함. Nav2 Costmap의 `footprint`·`inflation_radius`는 [`config/tb3_waffle_nav2_params.yaml`](../../config/tb3_waffle_nav2_params.yaml)에서 따로 맞춰야 함. | 없음 |
 | `robot_width`, `path_safety_margin`, `boundary_repass_distance_m`, `enable_boundary_repass` | 경로 좌표가 이 값들에 의존함. 경로 생성 후 바꾸면 `mission_executor`가 시작을 거부하므로, 바꿨다면 경로 생성부터 다시 실행함. | 시작 거부 |
 | `enable_boundary_repass` | `mission_execution` 섹션에 있지만 **경로 생성도** 이 값을 읽음. | 시작 거부 |
-| `enable_*` 토글 5개 | `false`는 ablation 비교용 조건임. 실험 후 `true`로 되돌리지 않으면 이후 경로가 해당 최적화 없이 생성됨. | 없음 |
+| `enable_*` 토글 7개 | `false`는 ablation 비교용 조건임. 실험 후 `true`로 되돌리지 않으면 이후 경로가 해당 최적화 없이 생성됨. | 없음 |
 | `coverage_mode` | 문자열 `"full"` / `"centroid_only"`만 허용함. `centroid_only`는 Baseline 비교용이므로 실제 검사에는 `"full"`을 씀. | 경로 생성 시 예외 |
-| `only_capture_at_waypoints` | 이름과 달리 "정지 지점에서만 측정"이 아님. `true`는 **Capture Window(Coverage 주행 + Boundary Repass) 안의 점만** 남기며, 주행 중 연속 측정은 그대로임. `false`로 두면 노드 간 Transit 구간의 점까지 섞임. | 없음 |
+| `only_capture_at_waypoints` | 이름과 달리 "정지 지점에서만 측정"이 아님. `true`는 **Capture Window(Coverage 주행 + Boundary Repass + planner가 측정으로 표시한 Transit) 안의 점만** 남기며, 주행 중 연속 측정은 그대로임. `false`로 두면 노드 간 Transit 구간의 점까지 섞임. | 없음 |
 | `z_min`, `z_max` | 단위는 **m**임(mm 아님). 설계 바닥 높이(z = 0)의 **위아래를 모두** 포함해야 함. `z_min: 0.0`이면 바닥 점의 아래쪽 절반이 빠짐. | 없음 |
 | `voxel_size`, `grid_size` | `voxel_size`는 저장 시 Voxel Downsampling 간격, `grid_size`는 Completeness·Heatmap의 분석 격자임. `voxel_size`가 `grid_size`보다 크면 점이 들어갈 수 없는 셀이 생겨 Completeness가 낮게 나옴. | 없음 |
 | `boundary_repass_distance_m` | Blind Radius의 **2배 이상**이어야 함. 세그먼트보다 길면 자동으로 줄어들지만(clamp), 설정값 자체가 작으면 경계 부근이 채워지지 않은 채 끝남. | 없음 |

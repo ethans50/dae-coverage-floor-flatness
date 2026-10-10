@@ -1,5 +1,7 @@
 # 히트맵 생성 방식
 
+> 이 문서의 히트맵은 주행 중 만들어지는 **map 기준 절대 높이** 시각화임. 평탄도 정의(국소 평면 대비 편차)와 정량 지표는 [국소 평면 히트맵](local_plane_heatmap.md)에서 같은 프레임 기록으로 다시 계산함.
+
 `surface_profiler`가 라이다 점군을 받아 평탄도 히트맵(`floor_heatmap_<ts>.png`)을 만들기까지의 처리를 단계별로 설명함. 각 단계의 값은 `config/params.yaml`의 `surface_profiling` 항목이며 괄호 안은 기본값임. 각 단계에는 그렇게 정한 **근거**를 함께 적었고, 근거의 종류(관찰·설계 판단·경험값)와 검증하지 않은 부분을 구분해 표시함. 이 문서는 주행 중 실행되는 기본 히트맵을 다루고, 국소 평면 대비 편차로 다시 계산하는 후처리는 [국소 평면 히트맵 가이드](local_plane_heatmap.md)에 있음.
 
 ## 1. 한눈에 보기
@@ -177,6 +179,7 @@ floor_heatmap_<ts>.png ◄── (6) 격자 평균·색 매핑 ◄── (5) z �
 | `offsets` | (F+1,) | `points[offsets[i]:offsets[i+1]]`가 i번째 프레임의 점 |
 | `points` | (P, 3) | `map` 좌표 점(z는 `frame_log_z_min/max`, 기본 ±0.5 m 대역만 남김) |
 | `intensity` | (P,) | `points`와 같은 순서의 반사 강도(토픽에 `intensity` 필드가 없으면 NaN) |
+| `ring` | (P,) | `points`와 같은 순서의 레이저 번호(int16, 토픽에 `ring` 필드가 없으면 -1). 레이저별 오차 분석용 |
 | `meta_*` | 스칼라 | 측정 조건(IMU TF 모드, 라이다 장착 보정 등) |
 
 이 기록은 누적 영상, 셀별 점 수 분석, [국소 평면 히트맵](local_plane_heatmap.md)의 입력임.

@@ -1,5 +1,7 @@
 # Local-Plane Heatmap (`local_plane_heatmap.py`)
 
+> This document covers the post-processing that **recomputes the default heatmap** (absolute height in the map frame, see [How the Heatmap Is Generated](heatmap_generation.md)) **with the flatness definition (deviation from a local plane)**. For the stages of the default heatmap, read that document.
+
 A tool that turns a frame log (`frames_*.npz`) into a heatmap of the **deviation from a local plane**, together with comparison metrics. Flatness is defined as what remains after subtracting a plane fitted to the surrounding floor, so long-wavelength slope is not measured; the mode selects the extent over which each point's plane is fitted (one frame, or a spatial window pooled over many frames). It runs on stored logs only, without re-driving.
 
 ## 1. Input and processing

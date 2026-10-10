@@ -42,7 +42,7 @@ def export(planner, output_dir, save_debug=True):
 
     # sampling_step만큼의 거리마다 샘플링
     sampled_nav2_path = sampler.interpolate_with_semantics(
-        raw_nav2_path
+        raw_nav2_path, reach_corners=planner.enable_corner_reach
     )
     
     raw_flat_path = []
@@ -89,7 +89,7 @@ def export(planner, output_dir, save_debug=True):
         'lidar_mount_height': planner.lidar_mount_height,
         'map_resolution': planner.map_resolution,
         'blind_radius_m': planner.blind_radius_m,
-        # 아래 5개는 실행 시 참조/대조되지 않음(순수 planning 단계 좌표
+        # 아래 항목들은 실행 시 참조/대조되지 않음(순수 planning 단계 좌표
         # 생성에만 관여) - ablation 실험 시 이 final_path.json이 어떤
         # 토글 조합으로 생성됐는지 추적하기 위한 기록용 메타데이터.
         'enable_pendant_reorder': planner.enable_pendant_reorder,
@@ -97,6 +97,11 @@ def export(planner, output_dir, save_debug=True):
         'enable_path_simplification': planner.enable_path_simplification,
         'coverage_mode': planner.coverage_mode,
         'enable_optimal_swath_angle': planner.enable_optimal_swath_angle,
+        'effective_swath_m': planner.robot_params['effective_swath_m'],
+        'enable_transit_capture': planner.enable_transit_capture,
+        'enable_corner_reach': planner.enable_corner_reach,
+        'recorded_transit_to_nodes': planner.recorded_transit_nodes,
+        'predicted_unresolved_cells': planner.unresolved_cells,
     }
     with open(meta_output_file, 'w') as f:
         json.dump(plan_meta, f, indent=4)

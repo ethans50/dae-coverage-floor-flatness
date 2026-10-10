@@ -69,12 +69,14 @@ def amplitude_map(e, window, dome):
 class Fields:
     """기록과 격자, 추정 방식별 높이장 계산(돔 주입 포함)."""
 
-    def __init__(self, d, cell_m, use_joint, smooth):
+    def __init__(self, d, cell_m, use_joint, smooth, grid=None):
+        """grid=(x0, y0, nx, ny)를 주면 점의 범위 대신 그 격자를 씀(서로 다른 기록의 높이장을 같은 셀에서 비교할 때). 모든 점이 격자 안에 들어와야 함."""
         self.d, self.C = d, cell_m
         x, y = d['x'], d['y']
-        self.x0, self.y0 = x.min(), y.min()
+        self.x0, self.y0 = (x.min(), y.min()) if grid is None else (grid[0], grid[1])
         ix, iy = ((x - self.x0) / cell_m).astype(np.int64), ((y - self.y0) / cell_m).astype(np.int64)
-        self.nx, self.ny = ix.max() + 1, iy.max() + 1
+        self.nx, self.ny = (ix.max() + 1, iy.max() + 1) if grid is None else (grid[2], grid[3])
+        assert ix.min() >= 0 and iy.min() >= 0 and ix.max() < self.nx and iy.max() < self.ny, '점이 지정한 격자 밖에 있음'
         self.H = self.nx * self.ny
         self.cell = iy * self.nx + ix
         gx, gy = np.meshgrid(self.x0 + (np.arange(self.nx) + .5) * cell_m, self.y0 + (np.arange(self.ny) + .5) * cell_m)

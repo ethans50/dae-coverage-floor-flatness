@@ -16,10 +16,10 @@ ring 개수임.
 
 import numpy as np
 
-# VLP-16 16채널(-15~+15도, 2도 간격) 중 바닥까지 도달이 실측으로 확인된
-# 5개 하향 빔 - 마운트 높이에서 h/tan(각도)로 만드는 반경이 실측 ring 반경과
-# 일치함을 확인함.
-VLP16_FLOOR_BEAM_ANGLES_DEG = (15.0, 13.0, 11.0, 9.0, 7.0)
+# VLP-16 하향 빔 중 평탄도 분석에 쓰는 링 1~4(15, 13, 11, 9도)만 ring 반경으로 계산함.
+# 링 5(7도) 이상은 거리에 비례해 오차가 커서 분석에서 제외하므로 관측 횟수에도 세지 않음.
+# 마운트 높이에서 h/tan(각도)로 만드는 반경이 실측 ring 반경과 일치함.
+VLP16_FLOOR_BEAM_ANGLES_DEG = (15.0, 13.0, 11.0, 9.0)
 
 
 def vlp16_ring_radii_m(mount_height_m, angles_deg=VLP16_FLOOR_BEAM_ANGLES_DEG):

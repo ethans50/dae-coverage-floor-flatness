@@ -51,7 +51,9 @@ mission_planner:
   # local_costmap의 inflation_radius(0.25m, tb3_waffle_nav2_params.yaml)보다 여유가 부족하면
   # 벽 근접 지점에서 제자리 회전(Spin)이 사전 충돌 체크에 걸려 실패하므로 그 이상으로 둠.
 
-  lidar_range: 3.0 # 라이다 측정 최대 범위 (m)
+  # 평탄도 분석에 쓰는 최대 범위(링 4 상한, 링 4와 링 5 반경의 중간값 2.44 m). 스와스 폭 = lidar_range * (1 - overlap)이라
+  # 이보다 크면 벽 근처가 링 5 이상으로만 관측되어 분석에서 빈 영역이 됨.
+  lidar_range: 2.44 # 라이다 측정 최대 범위 (m)
   overlap: 0.2 # 이동하면서 측정 시 오버랩할 비율
   
   # [Strict Directory Mappings]
@@ -69,6 +71,8 @@ mission_planner:
   enable_pendant_reorder: true       # 기본값 true. true=Step2.5 허브-pendant 재정렬 적용, false=적용 안 하고 Christofides 순서 그대로 씀
   enable_entry_hint_ordering: true   # 기본값 true. true=노드 내 스와스 순서를 진입/진출 방향에 맞춰 정렬, false=방향과 무관하게 고정 순서로 정렬 (위와 동일)
   enable_path_simplification: true   # 기본값 true. true=A* transit 경로의 계단현상 제거(Douglas-Peucker) 적용, false=적용 안 해서 계단현상이 그대로 남음 (위와 동일)
+  enable_transit_capture: true       # 기본값 true. true=짧은 노드처럼 repass로도 링 히트가 모자랄 것으로 예측되는 바닥 셀을 다음 노드로 가는 transit 측정으로 메우는 게 유리할 때만 그 transit을 측정에 포함, false=transit은 항상 측정하지 않음 (위와 동일)
+  enable_corner_reach: true          # 기본값 true. true=측정 구간의 코너 바로 앞에 보조 웨이포인트를 둬 Nav2가 코너를 자르지 않게 함, false=코너가 반경 0.7 m(coverage)만큼 잘림 (위와 동일)
 
   # [알고리즘 비교 실험용 토글] 3-way 비교(CentroidOnly/AllOff/Ours) 전용임.
   # 위 3개 토글 + mission_execution.enable_boundary_repass와 함께 조합해 사용함.
@@ -112,6 +116,8 @@ mission_execution:
   initial_pose_max_yaw_error_deg: 30.0  # AMCL 초기화 검증 시 위치는 맞아도 heading이 이보다 벌어지면 실패 처리. 실제 로봇을 출력된 runway heading과 다르게 놓으면 map->odom TF가 회전된 채 굳어 주행 전체가 삐뚤어짐(위치 오차 체크만으로는 못 잡히던 결함).
 
   direction_change_threshold_deg: 30.0 # 좁은 구역 측정 문제를 해결하기 위해 coverage/transit 무시함. 전체 경로를 대상으로, 30도 이상 방향이 바뀌는 지점으로 분할.
+  subsegment_merge_max_turn_deg: 100.0 # 고립된 코너점을 다음 sub-segment 에 병합할 때, 코너에서 이 각도보다 크게 되돌아 나가면(들어오는/나가는 구간이 subsegment_merge_min_leg_m 이상일 때) 병합하지 않고 코너를 단독 목표로 먼저 도달함.
+  subsegment_merge_min_leg_m: 0.5 # 위 판정에서 들어오는/나가는 구간의 최소 길이(m). 겹친 점처럼 길이가 거의 없는 코너는 각도와 무관하게 병합함.
 
   # [Boundary Repass] 모든 coverage exit 지점(중간 노드 exit + 미션의 진짜
   # 마지막 지점)은 "멀어짐" 방향 시야가 구조적으로 보장되지 않아 blind cone이

@@ -1,5 +1,7 @@
 # How the Heatmap Is Generated
 
+> The heatmap in this document is the visualisation of **absolute height in the map frame** made during a run. The flatness definition (deviation from a local plane) and the quantitative metrics are recomputed from the same frame log in the [local-plane heatmap guide](local_plane_heatmap.md).
+
 This document describes, stage by stage, how `surface_profiler` turns LiDAR point clouds into the flatness heatmap (`floor_heatmap_<ts>.png`). The parameters are under `surface_profiling` in `config/params.yaml`; defaults are given in parentheses. Each stage also states **why** it is set that way, marking the kind of evidence (observation, design judgement, empirical value) and what was not verified. It covers the default heatmap produced during a run; the post-processing that recomputes it as deviation from a local plane is in the [local-plane heatmap guide](local_plane_heatmap.md).
 
 ## 1. Overview
@@ -177,6 +179,7 @@ Independently of the heatmap, with `save_frame_log: true` (default) the `map`-fr
 | `offsets` | (F+1,) | `points[offsets[i]:offsets[i+1]]` are the points of frame i |
 | `points` | (P, 3) | `map`-frame points (z kept only within `frame_log_z_min/max`, default ±0.5 m) |
 | `intensity` | (P,) | reflectance intensity in the order of `points` (NaN if the topic has no `intensity` field) |
+| `ring` | (P,) | laser (ring) index in the order of `points` (int16, -1 if the topic has no `ring` field); for per-laser error analysis |
 | `meta_*` | scalars | measurement conditions (IMU TF mode, LiDAR mount correction, …) |
 
 This log is the input of the accumulation video, per-cell point-count analysis and the [local-plane heatmap](local_plane_heatmap.md).

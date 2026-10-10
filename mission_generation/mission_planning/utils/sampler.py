@@ -1,6 +1,9 @@
 import math
 import json
 
+# 코너 앞 보조점이 코너에서 떨어진 거리(m): Nav2 도달 허용 오차(0.06 m)보다 크게 둠
+CORNER_REACH_M = 0.1
+
 def _get_heading(p1, p2):
     """두 점 사이의 진행 방향(각도)을 반환함."""
     x1, y1 = p1['pose']['position']['x'], p1['pose']['position']['y']
@@ -13,7 +16,7 @@ def _distance(p1, p2):
     x2, y2 = p2['pose']['position']['x'], p2['pose']['position']['y']
     return math.hypot(x2 - x1, y2 - y1)
 
-def _resample_single_segment(poses, seg_type, record_pcd, extra_header=None):
+def _resample_single_segment(poses, seg_type, record_pcd, extra_header=None, reach_corners=False):
     """
     단일 세그먼트(coverage 스와스 하나, 또는 transit run 하나)에서 진짜
     꺾이는 지점(앵커)만 추출함. mission_planner.py가 A* 결과에
@@ -62,6 +65,16 @@ def _resample_single_segment(poses, seg_type, record_pcd, extra_header=None):
         if _distance(A, B) < 1e-6:
             continue
         if i < len(anchors) - 2:
+            if reach_corners and record_pcd and _distance(A, B) > 2 * CORNER_REACH_M:
+                # 코너 B 바로 앞(들어오는 직선 위)에 점을 하나 더 둠. 실행기는 heading이 바뀌는 점에서 구간을
+                # 나누고 그 점을 다음 구간의 첫 목표로 보내는데, Nav2가 반경 안에 든 중간 목표를 지워 코너를
+                # 잘라버림. 이 점이 앞 구간의 마지막 목표가 되면 로봇이 코너 근처까지 가서 서므로 코너가 안 잘림.
+                pre = json.loads(json.dumps(A))
+                f = (_distance(A, B) - CORNER_REACH_M) / _distance(A, B)
+                pre['pose']['position']['x'] = A['pose']['position']['x'] + (B['pose']['position']['x'] - A['pose']['position']['x']) * f
+                pre['pose']['position']['y'] = A['pose']['position']['y'] + (B['pose']['position']['y'] - A['pose']['position']['y']) * f
+                pre['header'] = {'frame_id': 'map', 'task_type': f"{seg_type}_turn", 'record_pcd': record_pcd, **extra_header}
+                sampled.append(pre)
             turn_wp = json.loads(json.dumps(B))
             turn_wp['header'] = {'frame_id': 'map', 'task_type': f"{seg_type}_turn", 'record_pcd': record_pcd, **extra_header}
             sampled.append(turn_wp)
@@ -73,7 +86,7 @@ def _resample_single_segment(poses, seg_type, record_pcd, extra_header=None):
     return sampled
 
 
-def interpolate_with_semantics(translated_segments):
+def interpolate_with_semantics(translated_segments, reach_corners=False):
     all_sampled = []
     for seg in translated_segments:
         seg_type = seg['type']
@@ -87,7 +100,7 @@ def interpolate_with_semantics(translated_segments):
         if seg.get('to_node_id') is not None:
             extra_header['to_node_id'] = seg['to_node_id']
 
-        seg_samples = _resample_single_segment(seg['poses'], seg_type, record_pcd, extra_header=extra_header)
+        seg_samples = _resample_single_segment(seg['poses'], seg_type, record_pcd, extra_header=extra_header, reach_corners=reach_corners)
         print(f"[*] Segment '{seg_type}': {len(seg['poses'])} original points -> {len(seg_samples)} anchor points")
         all_sampled.extend(seg_samples)
 

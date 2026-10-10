@@ -5,6 +5,7 @@ import sys
 import copy
 import time
 import math
+import threading
 
 import rclpy
 from rclpy.node import Node
@@ -234,8 +235,14 @@ class MissionExecutor(Nav2DriveMixin, LocalizationMixin, RunContextMixin, Node):
         # 필요함. /amcl_pose 토픽(저주파, AMCL 보정 시점에만 갱신)이 아니라 TF buffer를
         # 직접 조회하는 이유는, TF는 odom 기반으로 계속 보간되어 훨씬 더 실시간에 가까운
         # 값을 주기 때문임(회전 판단 시점의 정확도가 중요).
+        # TF 구독은 전용 노드+스레드에서 받음. spin_once 수동 루프는 호출당 콜백 1개만 처리하므로
+        # IMU TF on(/tf 약 250 msg/s)에서는 버퍼가 뒤처지거나 map 프레임이 비어 보임.
         self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.tf_node = rclpy.create_node('mission_tf_listener')
+        self.tf_listener = TransformListener(self.tf_buffer, self.tf_node)
+        self.tf_executor = SingleThreadedExecutor()
+        self.tf_executor.add_node(self.tf_node)
+        threading.Thread(target=self.tf_executor.spin, daemon=True).start()
 
     # ------------------------------------------------------------------
     # 경로 샘플링 (클램핑 전용 — 보간/샘플링은 mission_planner.py에서 완료됨)
@@ -500,6 +507,22 @@ class MissionExecutor(Nav2DriveMixin, LocalizationMixin, RunContextMixin, Node):
         # goThroughPoses의 경유점 중 하나로 포함되어, 혼자 남겨지는 상황을 방지함.
         # 단, record_pcd가 다음 sub-segment와 다르면 병합하지 않음 - 병합하면 그 1점의 캡처
         # 여부가 이웃 세그먼트의 flag로 조용히 덮어써지기 때문.
+        # 단, 코너점에서 경로가 거의 되돌아 나가면(실제 길이가 있는 들어오는 구간 + 큰 회전각) 병합하지 않음 -
+        # 좁은 복도에서 [코너, 되돌아 나가는 점] 두 목표를 한 번에 보내면 Nav2 컨트롤러가 코너 앞에서
+        # 선속도 0 으로 멈추는 현상이 반복 재현되어, 코너를 단독 목표로 먼저 도달하게 함.
+        merge_max_turn = math.radians(self.mission_exec_cfg.get('subsegment_merge_max_turn_deg', 100.0))
+        merge_min_leg = self.mission_exec_cfg.get('subsegment_merge_min_leg_m', 0.5)
+
+        def is_reversal(idx, next_idx):
+            if idx == 0:
+                return False
+            p0, p1, p2 = (goal_poses[k].pose.position for k in (idx - 1, idx, next_idx))
+            leg_in, leg_out = math.hypot(p1.x - p0.x, p1.y - p0.y), math.hypot(p2.x - p1.x, p2.y - p1.y)
+            if leg_in < merge_min_leg or leg_out < merge_min_leg:
+                return False
+            turn = math.atan2(p2.y - p1.y, p2.x - p1.x) - math.atan2(p1.y - p0.y, p1.x - p0.x)
+            return abs(math.atan2(math.sin(turn), math.cos(turn))) > merge_max_turn
+
         merged_segments = []
         i = 0
         while i < len(segments):
@@ -510,6 +533,7 @@ class MissionExecutor(Nav2DriveMixin, LocalizationMixin, RunContextMixin, Node):
                 and i + 1 < len(segments)
                 and self.final_path[s]['header'].get('record_pcd', True)
                     == self.final_path[segments[i + 1][0]]['header'].get('record_pcd', True)
+                and not is_reversal(s, segments[i + 1][0])
             )
             if is_trivial_single:
                 _, next_e = segments[i + 1]

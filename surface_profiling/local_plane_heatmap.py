@@ -97,6 +97,9 @@ def load_points(log, r_min, r_max, z_band, keep_fn):
     off, poses = log['offsets'], log['poses']
     used = used_frame_mask(log)
     cols = {k: [] for k in ('x', 'y', 'z', 'r', 'fid', 'cx', 'cy', 'grp')}
+    has_ring = 'ring' in log   # 레이저 번호가 기록된 로그면 점과 함께 돌려줌(없는 로그는 키 없음)
+    if has_ring:
+        cols['ring'] = []
     dropped_outside = 0
     for i in np.nonzero(used & (off[1:] > off[:-1]))[0]:
         p = log['points'][off[i]:off[i + 1]]
@@ -111,6 +114,8 @@ def load_points(log, r_min, r_max, z_band, keep_fn):
             continue
         cols['x'].append(p[k, 0]); cols['y'].append(p[k, 1]); cols['z'].append(p[k, 2]); cols['r'].append(r[k])
         cols['fid'].append(np.full(n, i)); cols['cx'].append(np.full(n, poses[i, 0])); cols['cy'].append(np.full(n, poses[i, 1]))
+        if has_ring:
+            cols['ring'].append(log['ring'][off[i]:off[i + 1]][k])
         cols['grp'].append(np.full(n, np.sin(poses[i, 3]) >= 0))   # 진행 방향 두 그룹(교차 일관성용)
     d = {k: np.concatenate(v) for k, v in cols.items()}
     d['x'], d['y'], d['z'] = d['x'].astype(np.float64), d['y'].astype(np.float64), d['z'].astype(np.float64)

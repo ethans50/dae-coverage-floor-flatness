@@ -36,6 +36,7 @@ Additional ROS packages that specific launch files expect:
 |---|---|---|
 | `nav2_bringup` | `tb3_waffle_nav2.launch.py` | Driving, Simulation |
 | `gazebo_ros`, `turtlebot3_description` | `sim_env.launch.py` | Simulation |
+| `velodyne_gazebo_plugins` | `sim_env.launch.py` (simulated VLP-16; publishes `ring`) | Simulation |
 | `turtlebot3_bringup`, `turtlebot3_node`, and the LDS driver for your model (`hls_lfcd_lds_driver` / `ld08_driver` / `coin_d4_driver`) | `real_bringup.launch.py` | Real robot only |
 | `velodyne` (driver) | VLP-16 data acquisition | Sensing on real hardware |
 
@@ -126,6 +127,9 @@ sudo apt install build-essential libgdal-dev libgeos-dev libeigen3-dev libboost-
      libtbb-dev libtinyxml2-dev nlohmann-json3-dev libpython3-dev gnuplot
 sudo apt install ros-humble-rmw-cyclonedds-cpp
 
+# Simulation only: Velodyne VLP-16 Gazebo plugin (publishes the `ring` field)
+sudo apt install ros-humble-velodyne-gazebo-plugins
+
 python3 -m pip install --upgrade pip wheel
 pip install --user "setuptools<80,>=30.3.0"
 ```
@@ -166,7 +170,7 @@ On the robot, Fields2Cover is not used at runtime — paths are computed on the 
 
 ## 6. OR-Tools shared libraries
 
-The TSP solver needs OR-Tools' C++ shared libraries. **The archive is architecture-specific** — use the matching one.
+Fields2Cover needs OR-Tools' C++ shared libraries. **The archive is architecture-specific** — use the matching one.
 
 **x86_64 (laptop / workstation):**
 

@@ -5,9 +5,12 @@ import cv2
 import os
 import math
 import time
+import io
+import contextlib
 
 from mission_planning.algorithms import tsp, coverage, transit, pendant_reorder
-from mission_planning.utils import visualizer, geometry, repass_preview
+from mission_planning import translator
+from mission_planning.utils import visualizer, geometry, repass_preview, coverage_check, sampler
 from mission_planning import path_exporter
 
 class MissionPlanner:
@@ -16,7 +19,7 @@ class MissionPlanner:
              blind_radius_m=None, boundary_repass_distance_m=1.5, enable_boundary_repass=True,
              boundary_repass_ring_min_count=2,
              enable_pendant_reorder=True, enable_entry_hint_ordering=True, enable_path_simplification=True,
-             coverage_mode="full", enable_optimal_swath_angle=True, **kwargs):
+             coverage_mode="full", enable_optimal_swath_angle=True, enable_transit_capture=True, enable_corner_reach=True, **kwargs):
         if not os.path.exists(topomap_path):
             raise FileNotFoundError(f"[!] Topomap file not found at: {topomap_path}")
         if coverage_mode not in ("full", "centroid_only"):
@@ -53,6 +56,14 @@ class MissionPlanner:
         self.enable_pendant_reorder = enable_pendant_reorder
         self.enable_entry_hint_ordering = enable_entry_hint_ordering
         self.enable_path_simplification = enable_path_simplification
+        # True면 짧은 노드처럼 repass로도 안 메워지는 바닥 셀을 다음 노드로 가는 transit
+        # 구간을 측정에 포함해 메우는 것이 유리할 때만 그 transit의 record_pcd를 켬
+        # (_select_recorded_transits 참고).
+        self.enable_transit_capture = enable_transit_capture
+        # True면 측정 구간의 코너 바로 앞에 보조 웨이포인트를 둬서 Nav2가 코너를 자르지 않게 함(sampler 참고).
+        self.enable_corner_reach = enable_corner_reach
+        self.recorded_transit_nodes = []
+        self.unresolved_cells = None
 
         # 3-way 알고리즘 비교 실험용 토글임. coverage_mode="centroid_only"면
         # 모든 노드에서 F2C 스와스 생성을 건너뛰어 swath_pairs가 빈 리스트가 되고,
@@ -337,6 +348,104 @@ class MissionPlanner:
         
         # [Step 3] 최종 궤적 생성 및 연결 (Transit via A*)
         print("[Step 3/3] Finalizing trajectory (Linking all paths)...")
+        record_to = set()
+        if self.enable_transit_capture:
+            record_to = self._select_recorded_transits(tsp_sequence, detailed_sequence, node_waypoints, global_cost_map)
+        coverage_count, transit_count = self._assemble_path(
+            tsp_sequence, detailed_sequence, node_waypoints, global_cost_map, record_to)
+        if self.enable_transit_capture or self.enable_corner_reach:
+            self._report_unresolved()
+            
+        total_time = time.time() - start_time
+        print(f"\n[DEBUG] Path Segments Created: Coverage({coverage_count}), Transit({transit_count})")
+        print(f"{'-'*20} [Planning Completed in {total_time:.2f}s] {'-'*20}\n")
+
+        return tsp_sequence
+
+    def _predict_hits(self, model):
+        """현재 self.path_segments를 실제 출력과 같은 방식으로 웨이포인트로 바꾸고, 실행기가 주행할 궤적(코너 컷
+        포함)과 시작 prepass/exit repass를 합쳐 셀별 링 히트 수를 돌려줌."""
+        H = self.global_mask.shape[0]
+        with contextlib.redirect_stdout(io.StringIO()):
+            raw = translator.convert_segments_to_nav2(self.path_segments, self.origin, self.map_resolution, H)
+            final = sampler.interpolate_with_semantics(raw, reach_corners=self.enable_corner_reach)
+            previews = repass_preview.build_preview(
+                self.path_segments, self.enable_boundary_repass, self.boundary_repass_distance_m, self.map_resolution,
+                self.lidar_mount_height, self.boundary_repass_ring_min_count, verbose=False)
+        total = np.zeros(len(model.cells), np.int32)
+        first = bool(previews) and 'exit_of' not in previews[0]
+        for g in coverage_check.executed_paths(final):
+            if g['record']:
+                px = np.c_[(g['xy'][:, 0] - self.origin[0]) / self.map_resolution,
+                           H - 1 - (g['xy'][:, 1] - self.origin[1]) / self.map_resolution]
+                total += model.hits(model.sample(px, trim_start=first, trim_end=g['stops_capture']))
+                first = False
+        for pv in previews:
+            total += model.hits(model.sample(pv['path'], trim_end=True))
+        return total
+
+    def _select_recorded_transits(self, tsp_sequence, detailed_sequence, node_waypoints, global_cost_map):
+        """측정 전 경로만으로 부족 셀(coverage_check 참고)을 예측하고, coverage 직후 transit을 측정에 넣었을 때
+        부족 셀이 순증으로 해소되는 노드 id 집합을 탐욕적으로 고름. 후보마다 그 transit 하나만 켠 경로를 만들어
+        기준 경로(전부 끔) 대비 히트 변화량을 구하고(후보 간 영향은 더해서 근사), 마지막 경로의 부족 셀은
+        _report_unresolved가 정확히 다시 셈. 해소 안 되는 셀은 개수/위치만 보고함(경로는 바꾸지 않음)."""
+        model = coverage_check.CoverageModel(self.nodes, self.map_resolution, self.lidar_mount_height)
+        quiet = contextlib.redirect_stdout(io.StringIO())
+        with quiet:
+            self._assemble_path(tsp_sequence, detailed_sequence, node_waypoints, global_cost_map, set())
+            base_segs = self.path_segments
+        total = self._predict_hits(model)
+
+        cands = [seg['to_node_id'] for k, seg in enumerate(base_segs)
+                 if seg['type'] == 'transit' and k > 0 and base_segs[k - 1]['type'] == 'coverage']
+        delta = {}
+        for nid in cands:
+            with contextlib.redirect_stdout(io.StringIO()):
+                self._assemble_path(tsp_sequence, detailed_sequence, node_waypoints, global_cost_map, {nid})
+            delta[nid] = self._predict_hits(model) - total
+
+        chosen = set()
+        while True:
+            deficient = total < coverage_check.MIN_HITS
+            best, best_gain = None, 0
+            for nid, d in delta.items():
+                if nid in chosen:
+                    continue
+                after = total + d
+                gain = int((deficient & (after >= coverage_check.MIN_HITS)).sum()
+                           - (~deficient & (after < coverage_check.MIN_HITS)).sum())
+                if gain > best_gain:
+                    best, best_gain = nid, gain
+            if best is None:
+                break
+            chosen.add(best)
+            total = total + delta[best]
+            print(f"[*] Transit capture: record transit into node {best} (+{best_gain} cells reach "
+                  f"{coverage_check.MIN_HITS} predicted ring hits)")
+        self.recorded_transit_nodes = sorted(chosen)
+        return chosen
+
+    def _report_unresolved(self):
+        """최종 self.path_segments의 부족 셀 예측을 노드별로 출력하고 개수를 저장함(경로는 바꾸지 않음)."""
+        model = coverage_check.CoverageModel(self.nodes, self.map_resolution, self.lidar_mount_height)
+        total = self._predict_hits(model)
+        bad = np.nonzero(total < coverage_check.MIN_HITS)[0]
+        self.unresolved_cells = int(len(bad))
+        print(f"[*] Predicted coverage: {len(model.cells) - len(bad)}/{len(model.cells)} cells reach "
+              f"{coverage_check.MIN_HITS} ring hits; {len(bad)} unresolved (reported only).")
+        if len(bad):
+            h = self.global_mask.shape[0]
+            cells = model.cells[bad]
+            xy = np.array([geometry.pixel_to_meter(c, self.origin, self.map_resolution, h) for c in cells])
+            for nd in self.nodes:
+                m = nd['driveable_mask'][cells[:, 1].astype(int), cells[:, 0].astype(int)] > 0
+                if m.any():
+                    print(f"    node {nd['id']}: {int(m.sum())} cells, x {xy[m, 0].min():.2f}..{xy[m, 0].max():.2f} m, "
+                          f"y {xy[m, 1].min():.2f}..{xy[m, 1].max():.2f} m")
+
+    def _assemble_path(self, tsp_sequence, detailed_sequence, node_waypoints, global_cost_map, record_transit_to):
+        """coverage/transit 구간을 이어 self.path_segments를 만들고 (coverage 수, transit 수)를 돌려줌.
+        record_transit_to: 그 노드로 들어가는 transit을 측정(record_pcd)에 포함할 노드 id 집합."""
         self.path_segments = [] 
         current_pos = None
         tsp_idx = 0 
@@ -460,8 +569,13 @@ class MissionPlanner:
 
                             if self.enable_path_simplification:
                                 full_enter_path = simplify_path(full_enter_path, epsilon_px=3.0)  # A* 지그재그 제거는 유지
+                            record_this = self.nodes[curr_node]['id'] in record_transit_to
+                            if record_this and len(full_enter_path) > 2 and full_enter_path[0] == current_pos:
+                                # 측정이 이어지는 transit은 coverage 끝점과 같은 첫 점을 빼 한 주행 구간 안에 같은 좌표가 두 번 안 들어가게 함
+                                full_enter_path = full_enter_path[1:]
                             self.path_segments.append({
-                                'type': 'transit', 'path': full_enter_path, 'record_pcd': False,
+                                'type': 'transit', 'path': full_enter_path,
+                                'record_pcd': record_this,
                                 'from_node_id': self.nodes[prev_node]['id'] if prev_node is not None else None,
                                 'to_node_id': self.nodes[curr_node]['id'],
                             })
@@ -484,18 +598,20 @@ class MissionPlanner:
                     # repass_preview 화살표
                     # (_build_boundary_repass_preview)가 raw_points[-1]->이
                     # 지점 구간을 시각적으로 이어줌.
-                    current_pos = self._compute_repass_adjusted_exit(raw_points)
+                    # 다음 coverage로 가는 transit이 측정 구간이면 캡처가 끊기지 않아
+                    # exit repass가 실행되지 않으므로 transit은 coverage 끝점에서 시작함
+                    nxt = tsp_sequence[tsp_idx + 1] if tsp_idx + 1 < len(tsp_sequence) else None
+                    if nxt is not None and self.nodes[nxt]['id'] in record_transit_to:
+                        current_pos = raw_points[-1]
+                    else:
+                        current_pos = self._compute_repass_adjusted_exit(raw_points)
                 
                 print(f"    -> Completed Coverage task in Node {curr_node+1}")
                 tsp_idx += 1 
             else:
                 print(f"    -> Transiting through Node {curr_node+1}")
-            
-        total_time = time.time() - start_time
-        print(f"\n[DEBUG] Path Segments Created: Coverage({coverage_count}), Transit({transit_count})")
-        print(f"{'-'*20} [Planning Completed in {total_time:.2f}s] {'-'*20}\n")
 
-        return tsp_sequence
+        return coverage_count, transit_count
 
     def _build_boundary_repass_preview(self):
         """repass_preview.build_preview()에 현 설정값을 넘겨 시각화 전용

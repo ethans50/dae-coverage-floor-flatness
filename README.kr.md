@@ -138,7 +138,7 @@ flowchart TD
 </p>
 
 1. **폭 분류.** 각 노드의 안전 통과 폭을 측정해 LiDAR Blind Radius 기준으로 `wide`/`narrow`/`ultra_narrow`로 나눔. 노드별 Coverage 전략이 여기서 갈리고, 로봇이 진입할 수 없는 방도 이 단계에서 걸러짐.
-2. **방문 순서.** 노드 중심점에 대한 Christofides 근사(OR-Tools)로 전역 순회 순서를 정함.
+2. **방문 순서.** 노드 중심점 사이의 최단 경로 거리에 Christofides 근사(NetworkX)를 적용해 전역 순회 순서를 정함.
 3. **국소 재정렬.** 허브 복도에 연결된 말단 방(Pendant)들을, 로봇이 허브 Coverage를 실제로 끝내는 지점에서 문이 가까운 순서로 재배열.
 4. **노드 내부 Coverage.** Fields2Cover가 Boustrophedon Swath를 생성함. wide 노드는 최적 각도를 자동 탐색하고, narrow 노드는 각도를 고정.
 5. **Swath 정렬.** 노드 내 Swath 순서를 진입 문 근처에서 시작해 다음 방의 문 근처에서 끝나도록 맞춤.
@@ -266,6 +266,8 @@ dae-coverage-floor-flatness/
 ├── models/ urdf/ worlds/ rviz/        # 자기완결 sim/실기체 로봇 description 파일
 └── requirements-*.txt                 # 역할별 고정 의존성
 ```
+
+파일별 설명과 단계별 입출력은 [코드 구조](docs/kr/architecture.md)([English](docs/en/architecture.md))에 정리했음.
 
 TurtleBot3 description 파일, Nav2 파라미터, Gazebo world/model은 **이 패키지 안에 포함**되어 있음. 시뮬레이션과 실기체 모두 이 저장소와 표준 ROS 2 / Nav2 스택만 있으면 됨.
 
@@ -438,6 +440,7 @@ Copyright © 2026 Changgon Song. All rights reserved.
 
 - [Nav2](https://docs.nav2.org/) — Navigation 스택, Behavior Tree, Regulated Pure Pursuit Controller.
 - [Fields2Cover](https://github.com/Fields2Cover/Fields2Cover) — Coverage Path 생성.
-- [OR-Tools](https://developers.google.com/optimization) — TSP Solver.
+- [NetworkX](https://networkx.org/) — 그래프 알고리즘과 Christofides TSP 근사.
+- [OR-Tools](https://developers.google.com/optimization) — Fields2Cover가 필요로 함.
 - [TurtleBot3](https://github.com/ROBOTIS-GIT/turtlebot3) — 로봇 플랫폼 및 description 파일.
 - [Open3D](https://www.open3d.org/) — Point Cloud 처리.
