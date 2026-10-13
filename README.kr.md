@@ -372,6 +372,7 @@ python3 scripts/stack.py up --imu-tf off --init <X> <Y> <YAW>
 ```bash
 cd surface_profiling
 python3 reprocess_pcd.py combined_<타임스탬프>.pcd --z-min -0.03 --z-max 0.03
+python3 reprocess_pcd.py combined_<타임스탬프>.pcd --interp bilinear   # 그림만 부드럽게, 셀 값은 그대로
 python3 analyze_coverage_comparison.py combined_<타임스탬프>.pcd \
     --robot-path robot_path_<epoch>.csv --stall-report stall_report_<epoch>.csv
 ```

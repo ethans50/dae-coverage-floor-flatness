@@ -94,6 +94,8 @@ floor_heatmap_<ts>.png ◄── (6) 격자 평균·색 매핑 ◄── (5) z �
 4. 지도 이미지(`map_from_dae.yaml`)가 있으면 배경으로 깔고 그 위에 히트맵을 투명도 0.75로 겹침. 빈 칸은 완전 투명임.
 5. 300 dpi PNG로 저장함(`visualization/surface_profiling/floor_heatmap_<ts>.png`).
 
+기본은 셀을 그대로 그림(`imshow`의 `interpolation='nearest'`). 발표나 보고서용으로 셀 사이를 부드럽게 보이게 하려면 `reprocess_pcd.py --interp bilinear`(또는 `gaussian`)를 씀. 보간은 화면 표시만 바꾸고 셀 값은 바뀌지 않음. 다만 폭이 좁은 결함은 옅어 보일 수 있고 빈 셀 가장자리가 번져 보일 수 있으므로, 결함 판단과 지표 계산에는 기본값 그림이나 원본 값을 씀.
+
 근거:
 
 - **셀 평균** — [설계 판단] 같은 셀을 여러 번 지나가므로 평균으로 점 단위 잡음을 줄임. 평균은 관측 거리·방향을 구분하지 않으므로 6절의 해석 주의가 따름.

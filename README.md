@@ -373,6 +373,7 @@ Re-analyse a stored run without re-driving:
 ```bash
 cd surface_profiling
 python3 reprocess_pcd.py combined_<timestamp>.pcd --z-min -0.03 --z-max 0.03
+python3 reprocess_pcd.py combined_<timestamp>.pcd --interp bilinear   # smoother-looking figure only; cell values unchanged
 python3 analyze_coverage_comparison.py combined_<timestamp>.pcd \
     --robot-path robot_path_<epoch>.csv --stall-report stall_report_<epoch>.csv
 ```

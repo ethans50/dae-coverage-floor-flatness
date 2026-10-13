@@ -19,6 +19,9 @@ generate_floor_heatmap)로 다시 실행함.
     python3 reprocess_pcd.py combined_<timestamp>.pcd --grid-size 0.01
     python3 reprocess_pcd.py combined_<timestamp>.pcd --no-map-overlay
 
+    # 그림만 부드럽게 (셀 값은 그대로, 발표·보고서용):
+    python3 reprocess_pcd.py combined_<timestamp>.pcd --interp bilinear
+
 주의: 이 스크립트는 params.yaml을 surface_profiler.py와 완전히 동일한
 방식(ament_index_python 우선, 실패 시 상대경로 폴백)으로 읽음.
 즉 "params.yaml을 고쳤는데 반영이 안 되는 것 같다"는 의심이 들 때,
@@ -80,6 +83,10 @@ def main():
     parser.add_argument(
         "--map-yaml-dir", type=str, default=None,
         help="params.yaml의 map_yaml_dir를 이번 실행에서만 덮어씀"
+    )
+    parser.add_argument(
+        "--interp", choices=["nearest", "bilinear", "gaussian"], default="nearest",
+        help="히트맵 imshow 보간 방식. 그림만 부드럽게 하고 셀 값은 바뀌지 않음 (기본: nearest)"
     )
     parser.add_argument(
         "--eval-label", type=str, default=None,
@@ -156,6 +163,7 @@ def main():
         z_min=z_min,
         z_max=z_max,
         map_yaml_dir=map_yaml_path,
+        interpolation=args.interp,
     )
 
     print("\n=======================================================")

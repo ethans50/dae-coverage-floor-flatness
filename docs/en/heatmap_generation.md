@@ -94,6 +94,8 @@ Rationale:
 4. If a map image (`map_from_dae.yaml`) exists it is drawn as the background and the heatmap is overlaid with opacity 0.75. Empty cells are fully transparent.
 5. Save as a 300 dpi PNG (`visualization/surface_profiling/floor_heatmap_<ts>.png`).
 
+By default the cells are drawn as they are (`imshow` with `interpolation='nearest'`). For slides or reports, `reprocess_pcd.py --interp bilinear` (or `gaussian`) makes the cells blend smoothly. Interpolation changes only the display; the cell values are unchanged. Narrow defects can look fainter and the edges of empty cells can look blurred, so use the default image or the raw values for judging defects and computing metrics.
+
 Rationale:
 
 - **Cell mean** — [Design judgement] Each cell is passed over several times, and averaging reduces per-point noise. The mean does not distinguish observation range or direction, so the cautions in section 6 apply.

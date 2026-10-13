@@ -51,6 +51,7 @@ def generate_floor_heatmap(
     z_min=-0.005,
     z_max=0.035,
     map_yaml_dir=None,
+    interpolation='nearest',
 ):
     """
     바닥면 필터링이 끝난 PCD 데이터를 X-Y 평면 격자로 나누고, 각 격자의 평균 z값을
@@ -65,6 +66,11 @@ def generate_floor_heatmap(
     map_yaml_dir: 지정하면(예: map_from_dae.yaml) 해당 2D OGM 이미지를
         배경으로 깔고 그 위에 히트맵을 반투명 오버레이함. None이면
         히트맵만 단독으로 그림(하위 호환).
+
+    interpolation: 그림을 그릴 때 셀 사이를 부드럽게 보이게 하는 imshow 보간
+        방식('nearest'=셀 그대로, 'bilinear', 'gaussian'). 화면 표시만 바꾸고
+        셀 값은 바뀌지 않음. 폭이 좁은 결함은 보간으로 옅어 보일 수 있으니
+        수치 판단은 'nearest'(기본값)로 그린 그림이나 원본 값으로 할 것.
 
     참고: 정규화는 데이터셋 자체의 min/max가 아니라 z_min/z_max로 고정된
     절대 기준이며, 건축 표준 규격에 따른 평탄도 허용 오차 기준과는
@@ -123,7 +129,7 @@ def generate_floor_heatmap(
                 cmap=cmap,
                 vmin=z_min * 100.0,
                 vmax=z_max * 100.0,
-                interpolation='nearest',
+                interpolation=interpolation,
                 alpha=0.75,
                 zorder=1,
             )
@@ -139,7 +145,7 @@ def generate_floor_heatmap(
                 cmap=cmap,
                 vmin=z_min * 100.0,
                 vmax=z_max * 100.0,
-                interpolation='nearest',
+                interpolation=interpolation,
             )
     else:
         print(f"[!] Warning: map_yaml_dir가 제공되지 않았습니다: {map_yaml_dir}")
@@ -150,7 +156,7 @@ def generate_floor_heatmap(
             cmap=cmap,
                 vmin=z_min * 100.0,
                 vmax=z_max * 100.0,
-            interpolation='nearest',
+            interpolation=interpolation,
             )
 
     cbar = plt.colorbar(im, ax=ax)
