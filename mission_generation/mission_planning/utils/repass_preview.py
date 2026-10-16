@@ -14,6 +14,7 @@ boundary repass(blind cone 보완)가 만들 지점을 planning 단계에서 px 
 import numpy as np
 
 from mission_planning.utils.ring_coverage import vlp16_ring_radii_m, exit_point_ring_count
+from mission_planning.utils.sampler import CORNER_REACH_M
 
 
 def compute_adjusted_exit(raw_points, enable_boundary_repass,
@@ -114,7 +115,12 @@ def build_preview(path_segments, enable_boundary_repass,
     if not enable_boundary_repass:
         log("    [start prepass] SKIPPED - enable_boundary_repass is false.")
     elif first_seg['type'] == 'coverage' and len(first_seg['path']) >= 2:
-        unit, seg_len_px = _unit_and_len(first_seg['path'][:2])  # 첫 다리만
+        # 코너 보조점이 생기지 않을 만큼 짧은 첫 다리(<= 2*CORNER_REACH_M)는 실행기가 첫 점을 다음 다리와
+        # 한 sub-segment로 묶으므로(첫 점 단독 구간은 병합됨) 다음 다리 끝까지를 첫 직선으로 봄.
+        pts = first_seg['path']
+        leg0_m = float(np.hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1])) * map_resolution
+        end = 2 if len(pts) > 2 and leg0_m <= 2 * CORNER_REACH_M else 1
+        unit, seg_len_px = _unit_and_len(pts[:end + 1])
         if unit is not None:
             d = min(d_px, seg_len_px * 0.9)
             p0 = np.array(first_seg['path'][0], dtype=float)

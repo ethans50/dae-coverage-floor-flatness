@@ -23,6 +23,7 @@
 | `tsp_solver` | `mission_planner` | 방문 순서 풀이 방법. `christofides`(기본값)는 근사 해이고 입력 노드를 정렬해 동점 처리를 고정함. `exact`는 같은 노드 간 비용으로 모든 열린 경로 순서를 비교해 가장 싼 순서를 고르고, 비용이 같으면 노드 id 사전순으로 골라 입력 순서나 부동소수점 반올림에 영향받지 않게 함. 노드 9개 이하만 지원하고 넘으면 `christofides`로 되돌아감. |
 | `enable_corner_reach` | `mission_planner` | `true`면 측정 구간의 코너 바로 앞에 보조 웨이포인트를 둠. 실행기가 직선 sub-segment를 목표 목록으로 Nav2에 보내는데, Nav2는 로봇이 0.7 m(transit BT는 0.3 m) 안에 들어온 중간 목표를 지우므로 보조점이 없으면 코너를 잘라 그 주변 셀의 측정이 부족해짐. |
 | `coverage_speed_limit_mps` / `transit_speed_limit_mps` | `mission_execution` | 구간 종류별 주행 속도. |
+| `real_coverage_min_speed_mps` | `mission_execution` | 실로봇 coverage 구간의 DWB 전진 속도 하한(시뮬은 적용 안 함). 목표 근처에서 모터 최소 구동 속도보다 낮은 명령을 내지 않게 함. |
 | `direction_change_threshold_deg` | `mission_execution` | 새 직선 sub-segment를 시작할 heading 변화량. |
 | `subsegment_merge_max_turn_deg` / `subsegment_merge_min_leg_m` | `mission_execution` | 고립된 코너점은 보통 다음 점과 함께 Nav2에 보냄. 코너에서 경로가 이 각도보다 크게 되돌아 나가고 앞뒤 구간이 모두 이 길이(m) 이상이면 코너를 단독 목표로 먼저 도달함. |
 | `boundary_repass_distance_m` | `mission_execution` | Coverage 경계에서 재통과할 거리. Blind Radius의 2배를 넘겨야 함. |

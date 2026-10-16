@@ -112,6 +112,11 @@ class ControllerSwitcher:
 
         ok = self._apply_doubles(names, value, tag='Speed', what='speed limit',
                                  unit='m/s', mode=mode)
+        if ok and mode == 'coverage' and not getattr(self.node, 'is_sim', True):
+            # 실로봇은 DWB가 목표 근처에서 vx 샘플 간격(max_vel_x / vx_samples = 0.008 m/s)까지 속도를 줄이는데, 이 값은
+            # 모터가 움직이지 못하는 최소 구동 속도보다 낮아 목표 허용 오차 밖에서 정지함. 전진 속도 하한을 올려 막음.
+            ok = self._apply_doubles(['FollowPath.min_vel_x'], self.cfg.get('real_coverage_min_speed_mps', 0.03),
+                                     tag='Speed', what='min speed', unit='m/s', mode=mode)
         if ok:
             self._current_speed_mode = mode
         return ok

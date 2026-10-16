@@ -101,6 +101,7 @@ mission_execution:
   transit_angular_dist_threshold: 3.140    # transit 구간 - 사실상 강제 회전 비활성화
 
   coverage_speed_limit_mps: 0.16   # coverage 구간 - DWB의 FollowPath.max_vel_x/max_speed_xy로 들어감(측정 정밀도 검증된 속도 유지)
+  real_coverage_min_speed_mps: 0.03   # 실로봇 coverage 구간 - DWB의 FollowPath.min_vel_x로 들어감. 목표 근처에서 DWB가 모터 최소 구동 속도보다 낮은 명령(0.008 m/s)만 내 목표 허용 오차 밖에서 멈추는 것을 막음. 시뮬은 적용하지 않음
   transit_speed_limit_mps: 0.26    # transit 구간 - RPP의 FollowPathTransit.desired_linear_vel로 들어감. 캡처 없이 이동만 하므로 TB3 Waffle 모터 스펙상 최대 선속도까지 올림
 
   active_capture_seconds: 2.0
