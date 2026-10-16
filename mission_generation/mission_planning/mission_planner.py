@@ -17,13 +17,15 @@ class MissionPlanner:
     # 파라미터 업데이트
     def __init__(self, topomap_path, visualization_dir="./debug", robot_width=0.28, path_safety_margin=0.25, lidar_range=8.4, overlap=0.2, turn_weight=2.0, wall_weight=5.0, lidar_mount_height=0.338, lidar_vertical_fov_deg=15.0,
              blind_radius_m=None, boundary_repass_distance_m=1.5, enable_boundary_repass=True,
-             boundary_repass_ring_min_count=2,
+             boundary_repass_ring_min_count=2, floor_ring_max=4,
              enable_pendant_reorder=True, enable_entry_hint_ordering=True, enable_path_simplification=True,
-             coverage_mode="full", enable_optimal_swath_angle=True, enable_transit_capture=True, enable_corner_reach=True, **kwargs):
+             coverage_mode="full", enable_optimal_swath_angle=True, enable_transit_capture=True, enable_corner_reach=True, tsp_solver="christofides", **kwargs):
         if not os.path.exists(topomap_path):
             raise FileNotFoundError(f"[!] Topomap file not found at: {topomap_path}")
         if coverage_mode not in ("full", "centroid_only"):
             raise ValueError(f"[!] Invalid coverage_mode: {coverage_mode!r} (expected 'full' or 'centroid_only')")
+        if tsp_solver not in ("christofides", "exact"):
+            raise ValueError(f"[!] Invalid tsp_solver: {tsp_solver!r} (expected 'christofides' or 'exact')")
 
         data = np.load(topomap_path, allow_pickle=True)
 
@@ -48,6 +50,8 @@ class MissionPlanner:
         self.enable_boundary_repass = enable_boundary_repass
         self.boundary_repass_ring_min_count = boundary_repass_ring_min_count
         self.lidar_mount_height = lidar_mount_height
+        # repass 건너뛰기 판정과 부족 셀 예측이 세는 하향 빔 링 수(1~5). 분석에 쓰는 링 상한과 같게 둠.
+        self.floor_ring_max = int(floor_ring_max)
 
         # ablation 실험용 토글 3종 - 각 메커니즘의 기여도를 개별적으로 끄고
         # 측정하기 위함. 기본값은 모두 True(현재
@@ -62,6 +66,7 @@ class MissionPlanner:
         self.enable_transit_capture = enable_transit_capture
         # True면 측정 구간의 코너 바로 앞에 보조 웨이포인트를 둬서 Nav2가 코너를 자르지 않게 함(sampler 참고).
         self.enable_corner_reach = enable_corner_reach
+        self.tsp_solver = tsp_solver
         self.recorded_transit_nodes = []
         self.unresolved_cells = None
 
@@ -96,6 +101,14 @@ class MissionPlanner:
         if not self.nodes:
             print("[ERROR] No nodes found in topomap file.")
             return
+
+        # TSP(Christofides)는 동점 처리가 입력 노드 순서에 따라 달라져, 같은 지도라도 npz에 노드가
+        # 저장된 순서가 바뀌면 방문 순서가 바뀜. 그래서 무게중심 x가 큰 노드부터 y, id 순으로 정렬해
+        # 풀이 입력 순서를 고정함. id는 npz 기준 번호를 그대로 유지함(실행기와 분석이 이 번호로 노드를 가리킴).
+        def _order_key(nd):
+            c = geometry.get_centroid(nd['driveable_mask']) or (-1, -1)
+            return (-c[0], c[1], nd['id'])
+        self.nodes.sort(key=_order_key)
 
         # 전체 구동 가능 영역 병합 (A* 등에서 활용)
         self.global_mask = np.zeros_like(self.nodes[0]['driveable_mask'])
@@ -206,7 +219,7 @@ class MissionPlanner:
         return repass_preview.compute_adjusted_exit(
             raw_points, self.enable_boundary_repass,
             self.boundary_repass_distance_m, self.map_resolution,
-            self.lidar_mount_height, self.boundary_repass_ring_min_count)
+            self.lidar_mount_height, self.boundary_repass_ring_min_count, self.floor_ring_max)
 
     def _reorder_pendant_groups(self, tsp_sequence, detailed_sequence, node_waypoints):
         """허브에 매달린 pendant 노드들의 방문 순서만 국소적으로 다듬음 -
@@ -223,7 +236,7 @@ class MissionPlanner:
         # [Step 1] TSP 순서 및 상세 경유 시퀀스 계산
         print("[Step 1/3] Calculating TSP and transit sequence...")
         tsp_sequence, detailed_sequence, planning_mask, node_waypoints, _connection_widths_px, _connection_masks = tsp.solve_tsp_sequence(
-            nodes=self.nodes, global_mask=self.global_mask
+            nodes=self.nodes, global_mask=self.global_mask, solver=self.tsp_solver
         )
         
         # Transit A* 전용 글로벌 비용 지도(Cost Map) 생성
@@ -371,7 +384,8 @@ class MissionPlanner:
             final = sampler.interpolate_with_semantics(raw, reach_corners=self.enable_corner_reach)
             previews = repass_preview.build_preview(
                 self.path_segments, self.enable_boundary_repass, self.boundary_repass_distance_m, self.map_resolution,
-                self.lidar_mount_height, self.boundary_repass_ring_min_count, verbose=False)
+                self.lidar_mount_height, self.boundary_repass_ring_min_count, verbose=False,
+                floor_ring_max=self.floor_ring_max)
         total = np.zeros(len(model.cells), np.int32)
         first = bool(previews) and 'exit_of' not in previews[0]
         for g in coverage_check.executed_paths(final):
@@ -389,7 +403,7 @@ class MissionPlanner:
         부족 셀이 순증으로 해소되는 노드 id 집합을 탐욕적으로 고름. 후보마다 그 transit 하나만 켠 경로를 만들어
         기준 경로(전부 끔) 대비 히트 변화량을 구하고(후보 간 영향은 더해서 근사), 마지막 경로의 부족 셀은
         _report_unresolved가 정확히 다시 셈. 해소 안 되는 셀은 개수/위치만 보고함(경로는 바꾸지 않음)."""
-        model = coverage_check.CoverageModel(self.nodes, self.map_resolution, self.lidar_mount_height)
+        model = coverage_check.CoverageModel(self.nodes, self.map_resolution, self.lidar_mount_height, self.floor_ring_max)
         quiet = contextlib.redirect_stdout(io.StringIO())
         with quiet:
             self._assemble_path(tsp_sequence, detailed_sequence, node_waypoints, global_cost_map, set())
@@ -427,7 +441,7 @@ class MissionPlanner:
 
     def _report_unresolved(self):
         """최종 self.path_segments의 부족 셀 예측을 노드별로 출력하고 개수를 저장함(경로는 바꾸지 않음)."""
-        model = coverage_check.CoverageModel(self.nodes, self.map_resolution, self.lidar_mount_height)
+        model = coverage_check.CoverageModel(self.nodes, self.map_resolution, self.lidar_mount_height, self.floor_ring_max)
         total = self._predict_hits(model)
         bad = np.nonzero(total < coverage_check.MIN_HITS)[0]
         self.unresolved_cells = int(len(bad))
@@ -620,7 +634,7 @@ class MissionPlanner:
         return repass_preview.build_preview(
             self.path_segments, self.enable_boundary_repass,
             self.boundary_repass_distance_m, self.map_resolution,
-            self.lidar_mount_height, self.boundary_repass_ring_min_count)
+            self.lidar_mount_height, self.boundary_repass_ring_min_count, floor_ring_max=self.floor_ring_max)
 
     def plan(self, save_debug=True, show_plot=False, output_dir=None):
         # output_dir 미지정 시, 현재 작업 디렉토리(cwd)에 의존하는 상대경로

@@ -1,3 +1,5 @@
+import itertools
+
 import numpy as np
 import cv2
 import networkx as nx
@@ -54,7 +56,21 @@ def extract_waypoints(nodes, global_mask):
                     
     return waypoints, planning_mask, connection_widths_px, connection_masks
 
-def solve_tsp_sequence(nodes, global_mask):
+EXACT_MAX_NODES = 9       # 전수 탐색(n!)을 허용하는 최대 노드 수. 넘으면 Christofides로 되돌아감
+EXACT_TIE_TOL = 1e-6      # 이 이하의 비용 차이는 동점으로 봄(px)
+
+
+def _exact_path(complete_graph, nodes):
+    """모든 방문 순서(열린 경로)를 비교해 비용이 최소인 순서를 고름. 비용이 EXACT_TIE_TOL 안에서 같으면
+    노드 id 순서열이 사전순으로 가장 작은 쪽을 골라, 입력 순서나 부동소수점 반올림과 무관하게 같은 결과가 나오게 함."""
+    n = len(nodes)
+    w = [[complete_graph[u][v]['weight'] if u != v else 0.0 for v in range(n)] for u in range(n)]
+    scored = [(sum(w[p[i]][p[i + 1]] for i in range(n - 1)), p) for p in itertools.permutations(range(n))]
+    best = min(c for c, _ in scored)
+    return list(min((tuple(nodes[i]['id'] for i in p), p) for c, p in scored if c <= best + EXACT_TIE_TOL)[1])
+
+
+def solve_tsp_sequence(nodes, global_mask, solver='christofides'):
     """
     노드 간 연결망을 분석해 최적의 방문 순서(TSP Sequence)와 상세 이동 경로를 계산함.
 
@@ -112,7 +128,12 @@ def solve_tsp_sequence(nodes, global_mask):
                 complete_graph[u][v]['weight'] = shortest_path_lengths[u].get(v, float('inf'))
                 
     # 4. TSP 근사 알고리즘을 통한 Target 방문 스케줄링
-    tsp_path = nx.approximation.traveling_salesman_problem(complete_graph, weight='weight', cycle=False)
+    if solver == 'exact' and len(nodes) <= EXACT_MAX_NODES:
+        tsp_path = _exact_path(complete_graph, nodes)
+    else:
+        if solver == 'exact':
+            print(f"[TSP] exact solver supports up to {EXACT_MAX_NODES} nodes ({len(nodes)} given): using Christofides")
+        tsp_path = nx.approximation.traveling_salesman_problem(complete_graph, weight='weight', cycle=False)
     print(f"\n[TSP Target] Schedule: {[x+1 for x in tsp_path]}")
     
     # 5. 경유 노드를 포함한 상세 경로(Detailed Sequence) 결합

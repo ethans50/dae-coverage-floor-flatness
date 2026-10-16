@@ -51,9 +51,12 @@ mission_planner:
   # local_costmap의 inflation_radius(0.25m, tb3_waffle_nav2_params.yaml)보다 여유가 부족하면
   # 벽 근접 지점에서 제자리 회전(Spin)이 사전 충돌 체크에 걸려 실패하므로 그 이상으로 둠.
 
-  # 평탄도 분석에 쓰는 최대 범위(링 4 상한, 링 4와 링 5 반경의 중간값 2.44 m). 스와스 폭 = lidar_range * (1 - overlap)이라
-  # 이보다 크면 벽 근처가 링 5 이상으로만 관측되어 분석에서 빈 영역이 됨.
-  lidar_range: 2.44 # 라이다 측정 최대 범위 (m)
+  # 평탄도 분석에 쓰는 최대 링과 그 범위. floor_ring_max는 repass 건너뛰기 판정과 부족 셀 예측이 세는
+  # 하향 빔 링 수(1~5)이고, 최종 경로 메타(final_path_meta.json)에 기록되어 실행기가 같은 값을 씀.
+  # lidar_range는 floor_ring_max 링 반경과 다음 링 반경 사이로 잡음(링 4는 2.44 m, 링 5는 3.0 m).
+  # 스와스 폭 = lidar_range * (1 - overlap)이라 이보다 크면 벽 근처가 분석 상한 밖의 링으로만 관측되어 빈 영역이 됨.
+  floor_ring_max: 5
+  lidar_range: 3.0 # 라이다 측정 최대 범위 (m)
   overlap: 0.2 # 이동하면서 측정 시 오버랩할 비율
   
   # [Strict Directory Mappings]
@@ -72,6 +75,7 @@ mission_planner:
   enable_entry_hint_ordering: true   # 기본값 true. true=노드 내 스와스 순서를 진입/진출 방향에 맞춰 정렬, false=방향과 무관하게 고정 순서로 정렬 (위와 동일)
   enable_path_simplification: true   # 기본값 true. true=A* transit 경로의 계단현상 제거(Douglas-Peucker) 적용, false=적용 안 해서 계단현상이 그대로 남음 (위와 동일)
   enable_transit_capture: true       # 기본값 true. true=짧은 노드처럼 repass로도 링 히트가 모자랄 것으로 예측되는 바닥 셀을 다음 노드로 가는 transit 측정으로 메우는 게 유리할 때만 그 transit을 측정에 포함, false=transit은 항상 측정하지 않음 (위와 동일)
+  tsp_solver: "christofides"         # 기본값 "christofides". christofides=근사 해(노드 입력을 정렬해 순서를 고정), exact=열린 경로 전수 탐색으로 최소 비용 순서(동점이면 노드 id 사전순, 노드 9개 이하만 지원하고 넘으면 christofides)
   enable_corner_reach: true          # 기본값 true. true=측정 구간의 코너 바로 앞에 보조 웨이포인트를 둬 Nav2가 코너를 자르지 않게 함, false=코너가 반경 0.7 m(coverage)만큼 잘림 (위와 동일)
 
   # [알고리즘 비교 실험용 토글] 3-way 비교(CentroidOnly/AllOff/Ours) 전용임.

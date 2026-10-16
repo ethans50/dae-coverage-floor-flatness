@@ -18,7 +18,7 @@ from mission_planning.utils.ring_coverage import vlp16_ring_radii_m, exit_point_
 
 def compute_adjusted_exit(raw_points, enable_boundary_repass,
                           boundary_repass_distance_m, map_resolution,
-                          lidar_mount_height, boundary_repass_ring_min_count=2):
+                          lidar_mount_height, boundary_repass_ring_min_count=2, floor_ring_max=4):
     """coverage 노드 하나(raw_points)의 실제 물리적 exit 지점 - F2C
     스와스 자체의 마지막 점(raw_points[-1])이 아니라, 실행 시
     BoundaryRepassController.run_exit_repass가 되짚기를 마친 뒤 로봇이
@@ -57,7 +57,7 @@ def compute_adjusted_exit(raw_points, enable_boundary_repass,
     # (평행이동/반전은 유클리드 거리를 바꾸지 않음), origin/map_height 없이도
     # geometry.pixel_to_meter와 동일한 거리를 얻음.
     traj_m = np.array(raw_points, dtype=float) * map_resolution
-    ring_radii = vlp16_ring_radii_m(lidar_mount_height)
+    ring_radii = vlp16_ring_radii_m(lidar_mount_height, floor_ring_max)
     n_exit = exit_point_ring_count(traj_m, b * map_resolution, ring_radii)
     if n_exit >= boundary_repass_ring_min_count:
         return raw_points[-1]
@@ -74,7 +74,7 @@ def compute_adjusted_exit(raw_points, enable_boundary_repass,
 
 def build_preview(path_segments, enable_boundary_repass,
                   boundary_repass_distance_m, map_resolution,
-                  lidar_mount_height, boundary_repass_ring_min_count=2, verbose=True):
+                  lidar_mount_height, boundary_repass_ring_min_count=2, verbose=True, floor_ring_max=4):
     """미션 실행 시 BoundaryRepassController가 만들 왕복 경로를 planning
     단계에서 근사해 시각화 전용으로 반환함. boundary_repass.py의 기하
     규칙(_offset_pose/_repass_distance_m)을 px 단위로 그대로 재현함.
@@ -166,7 +166,7 @@ def build_preview(path_segments, enable_boundary_repass,
         p_end = np.array(seg['path'][-1], dtype=float)
         retrace_raw = compute_adjusted_exit(seg['path'], enable_boundary_repass,
                                             boundary_repass_distance_m, map_resolution,
-                                            lidar_mount_height, boundary_repass_ring_min_count)
+                                            lidar_mount_height, boundary_repass_ring_min_count, floor_ring_max)
         if retrace_raw is None or tuple(retrace_raw) == tuple(seg['path'][-1]):
             log(f"    [exit repass] {tag} SKIPPED - no repass applied "
                   f"(disabled, exit zone already observed by enough rings, "

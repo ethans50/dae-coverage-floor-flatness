@@ -1,9 +1,11 @@
 # mission_generation/run_generation_pipeline.py
 
+import hashlib
 import os
 import shutil
 import yaml
 import json
+import time
 import traceback
 
 from ament_index_python.packages import get_package_share_directory
@@ -75,7 +77,41 @@ def _snapshot_planning_outputs(label, workspace_root, grid_dir, map_yaml_path, t
     print(f"[+] Snapshot saved to: {eval_root}")
 
 
-def run_generation_pipeline(snapshot_label=None):
+def _archive_generated_path(metric_dir, final_path_file, config_path):
+    """새로 만든 경로를 <metric_dir>/archive/<생성 시각>_ring<링 수>_<해시12>/ 에 따로 보관함.
+    final_path.json/final_path_meta.json은 매번 같은 고정 경로에 덮어써지므로, 어떤 경로가 어떤 설정으로
+    만들어졌는지 나중에 되짚을 수 있도록 사이드카, 원본 경로, 생성에 쓴 params.yaml 사본과 토글·링 수 요약
+    (config_summary.txt)을 함께 남김. 해시는 final_path.json 바이트의 sha256 앞 12자리임."""
+    with open(final_path_file, 'rb') as f:
+        digest = hashlib.sha256(f.read()).hexdigest()[:12]
+    meta_file = os.path.join(metric_dir, 'final_path_meta.json')
+    meta = {}
+    if os.path.exists(meta_file):
+        with open(meta_file) as f:
+            meta = json.load(f)
+    ring = meta.get('floor_ring_max', '?')
+    dst = os.path.join(metric_dir, 'archive', f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_ring{ring}_{digest}")
+    os.makedirs(dst, exist_ok=True)
+    for src in (final_path_file, meta_file, os.path.join(metric_dir, 'raw_path.json'), config_path):
+        if os.path.exists(src):
+            shutil.copy2(src, dst)
+    toggles = ['enable_pendant_reorder', 'enable_entry_hint_ordering', 'enable_path_simplification',
+               'enable_optimal_swath_angle', 'enable_transit_capture', 'enable_corner_reach',
+               'enable_boundary_repass', 'coverage_mode', 'tsp_solver']
+    lines = [f"floor_ring_max (rings counted for repass skip / coverage prediction): {ring}",
+             f"effective_swath_m: {meta.get('effective_swath_m', '?')}", f"final_path.json sha256[:12]: {digest}"]
+    lines += [f"{k}: {meta.get(k, 'not recorded')}" for k in toggles]
+    with open(os.path.join(dst, 'config_summary.txt'), 'w') as f:
+        f.write('\n'.join(lines) + '\n')
+    print(f"[+] Archived this path under: {dst}")
+
+
+# 분석 링 상한별 lidar_range(m). 값은 floor_ring_max 링 반경(마운트 높이 0.338 m 기준 링 4는 2.44 m, 링 5는 3.05 m)보다
+# 조금 작게 잡아, 스와스(= lidar_range * (1 - overlap))가 분석 상한 밖의 링으로만 관측되는 빈 영역을 만들지 않게 함.
+RING_LIDAR_RANGE_M = {4: 2.44, 5: 3.0}
+
+
+def run_generation_pipeline(snapshot_label=None, ring=None):
     print("\n=======================================================")
     print("[*] Mission Generator (Workstation)")
     print("    : Environment Modeling and Mission Planning")
@@ -127,6 +163,13 @@ def run_generation_pipeline(snapshot_label=None):
     boundary_repass_distance_m = mission_exec_cfg.get('boundary_repass_distance_m', 1.5)
     enable_boundary_repass = mission_exec_cfg.get('enable_boundary_repass', True)
     boundary_repass_ring_min_count = mission_exec_cfg.get('boundary_repass_ring_min_count', 2)
+
+    # --ring 이 주어지면 params.yaml 의 floor_ring_max/lidar_range 대신 이 링 상한의 짝(RING_LIDAR_RANGE_M)을 씀.
+    # 값은 final_path_meta.json 에 기록되어 executor 가 그대로 따름.
+    if ring is not None:
+        mission_cfg['floor_ring_max'] = ring
+        mission_cfg['lidar_range'] = RING_LIDAR_RANGE_M[ring]
+        print(f"[*] --ring {ring}: floor_ring_max={ring}, lidar_range={RING_LIDAR_RANGE_M[ring]} (params.yaml 값 무시)")
 
     # 시각화 디렉토리 경로 - regenerate 여부와 무관하게 스냅샷 시점에 항상
     # 필요하므로 여기서 미리 계산해둠(mission_cfg.pop은 아래 regenerate
@@ -201,6 +244,7 @@ def run_generation_pipeline(snapshot_label=None):
             if final_path:
                 print(f"[+] Success! New full coverage path (sampled) saved to: {cache_file}")
                 print(f"    Total Generated Waypoints: {len(final_path)}")
+                _archive_generated_path(metric_dir, cache_file, config_path)
                 print(f"\n[!] Mission execution assets generated. Please sync the workspace root '{workspace_root}' to Jetson Orin Nano.")
             else:
                 print("[!] Mission Planner returned empty route. Path generation aborted.")
@@ -228,5 +272,10 @@ if __name__ == "__main__":
         help="알고리즘 비교 실험용 - 주어지면 이번에 쓰인 맵/토폴로지/final_path를 "
              "<workspace_root>/eval_runs/<라벨>/에 복사해둠. 안 주면(기본값) 기본 동작과 동일."
     )
+    parser.add_argument(
+        "--ring", type=int, choices=sorted(RING_LIDAR_RANGE_M), default=None,
+        help="분석 링 상한(4 또는 5). 주어지면 params.yaml 의 floor_ring_max/lidar_range 를 이 링의 값으로 덮어써서 "
+             "경로를 생성함. 안 주면 params.yaml 값 그대로."
+    )
     args = parser.parse_args()
-    run_generation_pipeline(snapshot_label=args.snapshot_label)
+    run_generation_pipeline(snapshot_label=args.snapshot_label, ring=args.ring)

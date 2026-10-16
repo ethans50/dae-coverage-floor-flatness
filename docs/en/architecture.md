@@ -40,7 +40,7 @@ All data lives outside the package, under `workspace_root` in `config/params.yam
 | Stage | Reads | Writes |
 |---|---|---|
 | Environment modeling | `assets/<dae_file>` | `maps/grid/map_from_dae.{pgm,yaml}`, `maps/grid/map_preprocessed_data.npz`, `maps/topology/final_topological_map.npz`, debug images under `visualization/` |
-| Mission planning | topology map, 2D map, `params.yaml` | `analytics/metrics/final_path.json`, `analytics/metrics/final_path_meta.json`, debug images |
+| Mission planning | topology map, 2D map, `params.yaml` | `analytics/metrics/final_path.json`, `analytics/metrics/final_path_meta.json`, debug images, and a dated copy under `analytics/metrics/archive/<timestamp>_ring<N>_<hash>/` (path, sidecar, raw path, the `params.yaml` used, and `config_summary.txt` listing the ring count and toggles) |
 | Mission execution | `final_path.json`, `final_path_meta.json`, 2D map | `analytics/paths/robot_path_<ts>.csv`, `analytics/logs/drive_debug_<ts>.csv`, `analytics/logs/stall_report_<ts>.csv`, plots under `visualization/mission_execution/` |
 | Surface profiling | `/velodyne_points`, TF, capture services | `analytics/pointclouds/combined_<ts>.pcd`, `combined_raw_<ts>.pcd`, `combined_filtered_<ts>.pcd`, `frames_<ts>.npz`, `floor_heatmap_<ts>.png`, optional accumulation video |
 
@@ -108,7 +108,7 @@ When `eval_run_label` is passed to the launches, the outputs of stages 3 and 4 a
 | File | Purpose |
 |---|---|
 | `mission_planner.py` | Orchestrates planning: node visiting order, per-node coverage, transit paths, boundary-repass preview, path assembly. |
-| `algorithms/tsp.py` | Connection waypoints between adjacent nodes, the planning mask that lets A\* cross narrow connections, and the node visiting order (approximate travelling-salesman tour over a graph of connection costs, using NetworkX). |
+| `algorithms/tsp.py` | Connection waypoints between adjacent nodes, the planning mask that lets A\* cross narrow connections, and the node visiting order (approximate travelling-salesman tour over a graph of connection costs, using NetworkX). The planner sorts nodes by centroid before solving, so the order does not depend on how nodes are stored in the topology file. |
 | `algorithms/pendant_reorder.py` | Reorders the visits to leaf nodes attached to a hub, based on where the hub's coverage actually ends. |
 | `algorithms/coverage.py` | Converts a node mask into Fields2Cover cells and generates the swaths, optionally after boustrophedon decomposition and with a search over swath angles (`enable_optimal_swath_angle`). |
 | `algorithms/transit.py` | A\* between nodes with turn and wall-proximity penalties. |

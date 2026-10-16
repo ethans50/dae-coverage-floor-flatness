@@ -41,9 +41,9 @@ import math
 from geometry_msgs.msg import PoseStamped
 
 try:
-    from utils.ring_coverage import vlp16_ring_radii_m, exit_point_ring_count
+    from utils.ring_coverage import vlp16_ring_radii_m, exit_point_ring_count, DEFAULT_MAX_RING
 except ImportError:
-    from mission_execution.utils.ring_coverage import vlp16_ring_radii_m, exit_point_ring_count
+    from mission_execution.utils.ring_coverage import vlp16_ring_radii_m, exit_point_ring_count, DEFAULT_MAX_RING
 
 
 class BoundaryRepassController:
@@ -200,7 +200,7 @@ class BoundaryRepassController:
 
         min_ring_count = cfg.get('boundary_repass_ring_min_count', 2)
         lidar_mount_height = ex.mission_planner_cfg.get('lidar_mount_height', 0.338)
-        ring_radii = vlp16_ring_radii_m(lidar_mount_height)
+        ring_radii = vlp16_ring_radii_m(lidar_mount_height, getattr(ex, 'plan_floor_ring_max', DEFAULT_MAX_RING))
         traj_xy = [(p.pose.position.x, p.pose.position.y) for p in seg_poses]
         exit_xy = (seg_poses[-1].pose.position.x, seg_poses[-1].pose.position.y)
         n_exit = exit_point_ring_count(traj_xy, exit_xy, ring_radii)

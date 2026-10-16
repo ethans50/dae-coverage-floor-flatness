@@ -40,7 +40,7 @@
 | 단계 | 읽는 것 | 쓰는 것 |
 |---|---|---|
 | Environment modeling | `assets/<dae_file>` | `maps/grid/map_from_dae.{pgm,yaml}`, `maps/grid/map_preprocessed_data.npz`, `maps/topology/final_topological_map.npz`, `visualization/` 아래 디버그 이미지 |
-| Mission planning | topology 맵, 2D 맵, `params.yaml` | `analytics/metrics/final_path.json`, `analytics/metrics/final_path_meta.json`, 디버그 이미지 |
+| Mission planning | topology 맵, 2D 맵, `params.yaml` | `analytics/metrics/final_path.json`, `analytics/metrics/final_path_meta.json`, 디버그 이미지, 그리고 `analytics/metrics/archive/<생성 시각>_ring<링 수>_<해시>/` 아래 날짜별 사본(경로, 사이드카, 원본 경로, 생성에 쓴 `params.yaml`, 링 수와 토글을 적은 `config_summary.txt`) |
 | Mission execution | `final_path.json`, `final_path_meta.json`, 2D 맵 | `analytics/paths/robot_path_<ts>.csv`, `analytics/logs/drive_debug_<ts>.csv`, `analytics/logs/stall_report_<ts>.csv`, `visualization/mission_execution/` 아래 플롯 |
 | Surface profiling | `/velodyne_points`, TF, capture 서비스 | `analytics/pointclouds/combined_<ts>.pcd`, `combined_raw_<ts>.pcd`, `combined_filtered_<ts>.pcd`, `frames_<ts>.npz`, `floor_heatmap_<ts>.png`, 선택적으로 누적 영상 |
 
@@ -108,7 +108,7 @@
 | 파일 | 역할 |
 |---|---|
 | `mission_planner.py` | planning 전체를 조율함(노드 방문 순서, 노드별 coverage, transit path, boundary repass 미리보기, path 조립) |
-| `algorithms/tsp.py` | 인접 노드 사이의 연결 waypoint, A\*가 좁은 연결부를 지날 수 있게 하는 planning mask, 노드 방문 순서(연결 비용 그래프 위의 근사 TSP 순회, NetworkX 사용) |
+| `algorithms/tsp.py` | 인접 노드 사이의 연결 waypoint, A\*가 좁은 연결부를 지날 수 있게 하는 planning mask, 노드 방문 순서(연결 비용 그래프 위의 근사 TSP 순회, NetworkX 사용). 풀기 전에 노드를 무게중심 기준으로 정렬하므로 토폴로지 파일에 노드가 저장된 순서와 무관하게 같은 순서가 나옴 |
 | `algorithms/pendant_reorder.py` | 허브에 붙은 말단 노드의 방문 순서를, 허브의 coverage가 실제로 끝나는 지점 기준으로 재배열 |
 | `algorithms/coverage.py` | 노드 마스크를 Fields2Cover 셀로 바꾸고 swath를 생성. 옵션으로 Boustrophedon 분해와 swath 각도 탐색(`enable_optimal_swath_angle`)을 씀 |
 | `algorithms/transit.py` | 회전, 벽 근접 페널티를 둔 노드 간 A\* |

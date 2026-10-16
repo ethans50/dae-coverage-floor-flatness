@@ -89,6 +89,6 @@ Without ground truth, a heatmap alone cannot tell "error that was removed" from 
 
 ## 6. Limitations
 
-- If the path was generated without setting the LiDAR range (`lidar_range`) to the ring-4 limit, strips along walls may be observed only by ring 5 and beyond, and appear empty in this tool.
+- If the path was generated without setting the LiDAR range (`lidar_range`) to the limit of the ring used in the analysis, strips along walls may be observed only by ring 5 and beyond, and appear empty in this tool.
 - Synthetic-dome retention shows how much the processing erases large defects; it does not guarantee detection of real construction defects.
 - If the robot drives over a protrusion and the chassis tilts or the sensor height changes, the `raw`/`window` residuals are contaminated. `frame` removes the constant and planar parts within a frame and is not affected by this.

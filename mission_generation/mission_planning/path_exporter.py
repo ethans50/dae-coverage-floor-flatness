@@ -87,6 +87,7 @@ def export(planner, output_dir, save_debug=True):
         'enable_boundary_repass': planner.enable_boundary_repass,
         'boundary_repass_ring_min_count': planner.boundary_repass_ring_min_count,
         'lidar_mount_height': planner.lidar_mount_height,
+        'floor_ring_max': planner.floor_ring_max,
         'map_resolution': planner.map_resolution,
         'blind_radius_m': planner.blind_radius_m,
         # 아래 항목들은 실행 시 참조/대조되지 않음(순수 planning 단계 좌표
@@ -100,6 +101,7 @@ def export(planner, output_dir, save_debug=True):
         'effective_swath_m': planner.robot_params['effective_swath_m'],
         'enable_transit_capture': planner.enable_transit_capture,
         'enable_corner_reach': planner.enable_corner_reach,
+        'tsp_solver': planner.tsp_solver,
         'recorded_transit_to_nodes': planner.recorded_transit_nodes,
         'predicted_unresolved_cells': planner.unresolved_cells,
     }

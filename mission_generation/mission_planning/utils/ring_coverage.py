@@ -15,15 +15,16 @@ ring 개수임.
 
 import numpy as np
 
-# VLP-16 하향 빔 중 평탄도 분석에 쓰는 링 1~4(15, 13, 11, 9도)만 ring 반경으로 계산함.
-# 링 5(7도) 이상은 거리에 비례해 오차가 커서 분석에서 제외하므로 관측 횟수에도 세지 않음.
+# VLP-16 하향 빔 각도(링 1~5). 거리에 비례해 오차가 커지는 링을 어디까지 쓸지는 호출 측이
+# max_ring(planning 은 params.yaml 의 floor_ring_max, 실행은 final_path_meta.json 값)으로 정함.
 # 마운트 높이에서 h/tan(각도)로 만드는 반경이 실측 ring 반경과 일치함.
-VLP16_FLOOR_BEAM_ANGLES_DEG = (15.0, 13.0, 11.0, 9.0)
+VLP16_FLOOR_BEAM_ANGLES_DEG = (15.0, 13.0, 11.0, 9.0, 7.0)
+DEFAULT_MAX_RING = 4
 
 
-def vlp16_ring_radii_m(mount_height_m, angles_deg=VLP16_FLOOR_BEAM_ANGLES_DEG):
-    """마운트 높이에서 지정 하향 빔 각도들이 만드는 바닥 ring 반경(m)을 반환함."""
-    angles = np.asarray(angles_deg, dtype=np.float64)
+def vlp16_ring_radii_m(mount_height_m, max_ring=DEFAULT_MAX_RING, angles_deg=VLP16_FLOOR_BEAM_ANGLES_DEG):
+    """마운트 높이에서 하향 빔 링 1~max_ring이 만드는 바닥 ring 반경(m)을 반환함."""
+    angles = np.asarray(angles_deg[:int(max_ring)], dtype=np.float64)
     return mount_height_m / np.tan(np.radians(angles))
 
 

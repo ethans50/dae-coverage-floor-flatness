@@ -164,7 +164,7 @@ python3 -c "import fields2cover as f2c; print(f2c.DECOMP_Boustrophedon)"
 
 > 파이썬 바인딩은 C++ API의 일부만 노출함. `help(f2c.X)`로 시그니처가 안 나오면 C++ 헤더나 `~/Fields2Cover/tutorials/python/`를 찾아볼 것.
 
-로봇에서는 Fields2Cover가 런타임에 실제로 쓰이지 않음. 경로는 planning 기기에서 미리 계산해 파일로 넘겨받기 때문임. 그래도 설치해두는 쪽이 안전함. `mission_planner.py`를 import하는 코드 경로가 있을 때 import 에러를 막아줌.
+로봇에서는 Fields2Cover가 런타임에 실제로 쓰이지 않음. 경로는 보통 planning 기기에서 미리 계산해 파일로 넘겨받기 때문임. 도면이 작으면 Jetson에서 직접 planning할 수도 있으며, 이때는 같은 고정 커밋으로 Fields2Cover를 빌드해야 함. 그렇지 않더라도 설치해두는 쪽이 안전함. `mission_planner.py`를 import하는 코드 경로가 있을 때 import 에러를 막아줌.
 
 ---
 
@@ -299,7 +299,7 @@ source install/setup.bash
 
 로봇에서 추가로 해야 할 것:
 
-- **planning 기기의 `~/dae_floor_maps`를 복사해 올 것** — 최소한 `maps/grid/`, `maps/topology/`, `analytics/metrics/`가 필요함. 트리 전체를 복사하는 게 가장 간단함.
+- **planning 기기의 `~/dae_floor_maps`를 복사해 올 것**(로봇에서 직접 planning했다면 반대로 노트북으로 복사) — 최소한 `maps/grid/`, `maps/topology/`, `analytics/metrics/`가 필요함. 트리 전체를 복사하는 게 가장 간단함.
 - **OpenCR / USB 권한 설정** — 표준 TurtleBot3 bringup 문서대로 진행할 것.
 - **테스트 세션마다 시간 동기화.** 로봇과 노트북이 각자 자기 시계로 산출물 시각을 찍으므로, `chrony`(또는 `ntpdate`)로 맞춰둬야 나중에 짝을 지을 수 있음.
 

@@ -330,7 +330,10 @@ ros2 launch dae-coverage-floor-flatness mission_execution.launch.py is_sim:=true
 > 경로 생성 단계가 만드는 `visualization/mission_generation/mission_planning/full_mission_path.png`에 그 지점의 heading(빨간 화살표)과 가장 가까운 벽까지의 거리(cm)가 함께 표시됨. 줄자로 그 거리를 맞추고 화살표 방향으로 로봇을 정렬하면 됨. 위치보다 heading을 맞추는 쪽이 중요함. 초기 heading 오차는 `map→odom` 변환에 그대로 굳어서, 주행 내내 경로 전체가 기울어진 것처럼 남음.
 
 ```bash
-# 0. [planning 기기] 경로 생성 후, ~/dae_floor_maps 를 로봇(Jetson)의 같은 위치로 복사
+# 0. [planning 기기: 노트북, 도면이 작으면 Jetson에서도 가능] 경로 생성.
+#    어느 기기에서 만들었든 ~/dae_floor_maps 를 노트북과 Jetson에서 같게 맞추고(복사),
+#    양쪽에서 `sha256sum ~/dae_floor_maps/analytics/metrics/final_path.json` 값이 같은지 확인
+#    `--ring 4` 또는 `--ring 5`를 주면 floor_ring_max와 lidar_range를 함께 덮어씀(설정 가이드 참고). 안 주면 params.yaml 값을 씀
 python3 run_generation_pipeline.py
 
 # 1. [Jetson] 로봇 bringup

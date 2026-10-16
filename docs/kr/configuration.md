@@ -16,9 +16,11 @@
 | `max_aspect_ratio` | `environment_modeling` | 이 값을 넘으면 노드를 분할함(Step 5). |
 | `robot_width` | `environment_modeling` | 로봇 **반경**(m). 주행 가능 영역과 planning 경로의 벽 여유 계산에 쓰임. |
 | `path_safety_margin` | `mission_planner` | `robot_width`에 더해 planning 경로가 벽에서 추가로 유지할 여유. |
-| `lidar_range`, `overlap`, `lidar_vertical_fov_deg`, `lidar_mount_height` | `mission_planner` | 센서 기하. Swath 폭(`lidar_range` × (1 − `overlap`))과, 노드 버킷을 가르는 Blind Radius를 결정함. `lidar_range`는 분석에 쓰는 가장 먼 범위인 링 4 상한(마운트 높이 0.338 m에서 2.44 m)으로 둠. |
+| `lidar_range`, `overlap`, `lidar_vertical_fov_deg`, `lidar_mount_height` | `mission_planner` | 센서 기하. Swath 폭(`lidar_range` × (1 − `overlap`))과, 노드 버킷을 가르는 Blind Radius를 결정함. `lidar_range`는 분석에 쓰는 가장 먼 범위로, `floor_ring_max`가 가리키는 링의 상한에 맞춰 둠(마운트 높이 0.338 m에서 링 4는 2.44 m, 링 5는 3.0 m). `python3 run_generation_pipeline.py --ring 4`(또는 `--ring 5`)를 주면 `params.yaml`을 고치지 않고 그 실행에서만 두 값을 함께 지정함. |
+| `floor_ring_max` | `mission_planner` | repass 건너뛰기 판정과 부족 셀 예측이 세는 하향 빔 링 수(1~5). 경로 메타에 기록되고, executor는 메타 값을 따라 같은 판정을 함(메타에 없으면 4). |
 | `turn_weight`, `wall_weight` | `mission_planner` | A\* Transit 경로 페널티. |
 | `enable_transit_capture` | `mission_planner` | `true`면 경로 생성 시 planning된 경로만으로 링 히트가 모자랄 바닥 셀(Blind Radius의 2배보다 짧은 직선 구간은 중앙이 빔)을 예측하고, 노드 뒤 transit을 측정하면 그 셀이 메워질 때만 그 transit의 캡처를 켬. 못 메우는 셀은 개수와 위치만 보고하고 경로는 바꾸지 않음. |
+| `tsp_solver` | `mission_planner` | 방문 순서 풀이 방법. `christofides`(기본값)는 근사 해이고 입력 노드를 정렬해 동점 처리를 고정함. `exact`는 같은 노드 간 비용으로 모든 열린 경로 순서를 비교해 가장 싼 순서를 고르고, 비용이 같으면 노드 id 사전순으로 골라 입력 순서나 부동소수점 반올림에 영향받지 않게 함. 노드 9개 이하만 지원하고 넘으면 `christofides`로 되돌아감. |
 | `enable_corner_reach` | `mission_planner` | `true`면 측정 구간의 코너 바로 앞에 보조 웨이포인트를 둠. 실행기가 직선 sub-segment를 목표 목록으로 Nav2에 보내는데, Nav2는 로봇이 0.7 m(transit BT는 0.3 m) 안에 들어온 중간 목표를 지우므로 보조점이 없으면 코너를 잘라 그 주변 셀의 측정이 부족해짐. |
 | `coverage_speed_limit_mps` / `transit_speed_limit_mps` | `mission_execution` | 구간 종류별 주행 속도. |
 | `direction_change_threshold_deg` | `mission_execution` | 새 직선 sub-segment를 시작할 heading 변화량. |

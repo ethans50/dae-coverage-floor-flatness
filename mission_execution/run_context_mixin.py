@@ -31,10 +31,12 @@ try:
     from utils.map_utils import get_map_bounds
     from utils.visualizer import visualize_paths, visualize_planned_wall_proximity, visualize_stall_points
     from utils.stall_logger import write_stall_report
+    from utils.ring_coverage import DEFAULT_MAX_RING
 except ImportError:
     from mission_execution.utils.map_utils import get_map_bounds
     from mission_execution.utils.visualizer import visualize_paths, visualize_planned_wall_proximity, visualize_stall_points
     from mission_execution.utils.stall_logger import write_stall_report
+    from mission_execution.utils.ring_coverage import DEFAULT_MAX_RING
 
 
 class RunContextMixin:
@@ -190,6 +192,9 @@ class RunContextMixin:
         final_path.json) 대조 자체를 건너뛰고 경고만 남김 - 하위 호환을 위해
         미션을 막지는 않음.
         """
+        # repass 건너뛰기 판정이 세는 링 수는 경로를 만든 값(사이드카)을 따라야 planning된 exit 지점과
+        # 어긋나지 않음. 사이드카에 없으면(floor_ring_max 도입 이전 경로) 당시 기본값 4를 씀.
+        self.plan_floor_ring_max = DEFAULT_MAX_RING
         meta_file = os.path.normpath(os.path.join(metric_dir, "final_path_meta.json"))
         if not os.path.exists(meta_file):
             print(f"[!] Warning: '{meta_file}' not found - cannot verify plan/runtime "
@@ -198,6 +203,7 @@ class RunContextMixin:
 
         with open(meta_file, 'r') as f:
             plan_meta = json.load(f)
+        self.plan_floor_ring_max = int(plan_meta.get('floor_ring_max', DEFAULT_MAX_RING))
 
         runtime_values = {
             'robot_width': self.env_cfg.get('robot_width', 0.28),

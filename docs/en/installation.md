@@ -164,7 +164,7 @@ python3 -c "import fields2cover as f2c; print(f2c.DECOMP_Boustrophedon)"
 
 > The Python bindings expose only part of the C++ API. If `help(f2c.X)` shows no signature, check the C++ headers or `~/Fields2Cover/tutorials/python/`.
 
-On the robot, Fields2Cover is not used at runtime — paths are computed on the planning machine and transferred as a file. Installing it there anyway is harmless and avoids import errors if any code path reaches `mission_planner.py`.
+On the robot, Fields2Cover is not used at runtime — paths are normally computed on the planning machine and transferred as a file. To plan on the Jetson itself (practical for a small floor plan), build Fields2Cover there at the same pinned commit; otherwise installing it there is harmless and avoids import errors if any code path reaches `mission_planner.py`.
 
 ---
 
@@ -299,7 +299,7 @@ source install/setup.bash
 
 Also on the robot:
 
-- **Copy `~/dae_floor_maps` over from the planning machine** — at minimum `maps/grid/`, `maps/topology/` and `analytics/metrics/`. Copying the whole tree is simplest.
+- **Copy `~/dae_floor_maps` over from the planning machine** (skip if you plan on the robot itself, but then copy it to the laptop instead) — at minimum `maps/grid/`, `maps/topology/` and `analytics/metrics/`. Copying the whole tree is simplest.
 - **Set up OpenCR / USB permissions** as per the standard TurtleBot3 bringup instructions.
 - **Synchronise clocks before every test session.** The robot and the laptop timestamp their outputs independently; `chrony` (or `ntpdate`) keeps them consistent enough to pair.
 

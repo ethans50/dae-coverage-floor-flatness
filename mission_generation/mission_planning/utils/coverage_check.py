@@ -101,7 +101,7 @@ def executed_paths(final_path):
 class CoverageModel:
     """노드 마스크(px, 이미지 좌표)로 분석 셀과 벽 가림 마스크를 만들고 히트 수를 셈."""
 
-    def __init__(self, nodes, map_resolution, lidar_mount_height):
+    def __init__(self, nodes, map_resolution, lidar_mount_height, floor_ring_max=4):
         self.res = float(map_resolution)
         floor = np.zeros(nodes[0]['driveable_mask'].shape, bool)
         inside = np.zeros_like(floor)
@@ -118,7 +118,7 @@ class CoverageModel:
         iy, ix = ys.astype(int), xs.astype(int)
         keep = inside[iy, ix] & (wall_m[iy, ix] >= WALL_MARGIN_M)
         self.cells = np.c_[xs[keep], ys[keep]]
-        self.ring_px = vlp16_ring_radii_m(lidar_mount_height) / self.res
+        self.ring_px = vlp16_ring_radii_m(lidar_mount_height, floor_ring_max) / self.res
         self.tol_px = RING_TOL_M / self.res
 
     def sample(self, path, trim_start=False, trim_end=False):

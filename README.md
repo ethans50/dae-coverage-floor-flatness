@@ -331,7 +331,10 @@ ros2 launch dae-coverage-floor-flatness mission_execution.launch.py is_sim:=true
 > `visualization/mission_generation/mission_planning/full_mission_path.png` from the planning stage marks that pose with its heading (red arrow) and the distance to the nearest wall in centimetres. Measure that distance with a tape and align the robot along the arrow. Heading matters more than position: an initial heading error is baked into the `map→odom` transform and leaves the whole run looking skewed.
 
 ```bash
-# 0. [Planning machine] Generate the path, then copy ~/dae_floor_maps to the same location on the robot (Jetson)
+# 0. [Planning machine: the laptop, or the Jetson itself for a small floor plan] Generate the path.
+#    Whichever machine generated it, make ~/dae_floor_maps identical on the laptop and the Jetson (copy it over), then compare
+#    `sha256sum ~/dae_floor_maps/analytics/metrics/final_path.json` on both.
+#    `--ring 4` or `--ring 5` overrides floor_ring_max and lidar_range together (see the configuration guide); without it params.yaml is used.
 python3 run_generation_pipeline.py
 
 # 1. [Jetson] Robot bringup
